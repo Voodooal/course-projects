@@ -1,0 +1,702 @@
+---
+title: "Homework 3"
+author: Mengyi Yuan 
+date: Febuary 17th, 2018
+output: pdf_document
+---
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+library(ggplot2)
+library(GGally)
+library(gridExtra)
+library(dplyr)
+library(MASS)  #lda
+library(nnet)  #multinom
+library(class) #knn
+```
+
+## Question 2
+
+The data set auto-mpg concerns city-cycle fuel consumption in miles per gallon(mpg) and other attributes collected for 398 vehicle instances. There are five quantitative variables: mpg, displacement, horsepower, weight and acceleration and four categorical variables: cylinders, model year, origin and car name. 
+
+### I. Preprocess the data
+
+The data set is divided into three groups according to the values of cylinders. The class label will be 1 if the number of cylinders is 5 or less, 2 if the number of cylinders is 6 and 3 otherwise. After dividing the data, there are 206 data points in group 1, 83 data points in group 2 and 103 data points in group 3. 
+
+We will then process the data set in a number of ways: 
+i) standardize all continuous valued columns so they all have zero mean and unit variance;
+ii) perform principal component analysis on these continuous features and represent the data based on the first two principal component, i.e. the first two columns of PCA scores of the data.
+
+
+```{r echo=FALSE}
+## read and preprocess the data
+setwd("/Users/Voodooal/Documents/STATS503/hw3")
+auto_mpg = read.table("auto-mpg.data")
+colnames(auto_mpg) = c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                       "model_year", "origin", "car_name")
+
+# deal with the missing values in variable horsepower
+auto_mpg = auto_mpg %>%
+  filter(horsepower != "?")
+auto_mpg$horsepower = as.numeric(as.character(auto_mpg$horsepower))
+
+auto_mpg$labels = (auto_mpg$cylinders <= 5) * -1 
+auto_mpg$labels = auto_mpg$labels + (auto_mpg$cylinders == 6) * 1 
+auto_mpg$labels = auto_mpg$labels + 1
+auto_mpg$labels[auto_mpg$labels == 1] = 3
+auto_mpg$labels[auto_mpg$labels == 0] = 1
+auto_mpg$labels = as.factor(auto_mpg$labels)
+
+# standardize all continuous variables
+X = auto_mpg[, c("mpg", "displacement", "horsepower", "weight", "acceleration")]
+colnames(X) = c("mpg", "displacement", "horsepower", "weight", "acceleration")
+# standardized X
+scaled_X = scale(X)
+# perform PCA 
+auto_pca = princomp(scaled_X, cor = T)
+pca_X = auto_pca$scores[,1:2]
+```
+
+After preprocessing, we will have three data sets: original data set, scaled data set and pca preprocessed data set. For each data set, we select from each class 75% of data as training data and the rest 25% as test data. To make sure that the training set and the test set are visually "compatible", we will compare their scatterplots and numeric summaries. For example, let's take a look at the training set and test set of the original data set. We expect the distributions of the training set and test set to be similar, so that the classification will be more accurate. 
+
+```{r echo=FALSE}
+# a
+# select training set and test set
+train_test = function(data, class){
+  data_class = data %>%
+    filter(labels==class)
+  set.seed(133)
+  train_index = sample(1:nrow(data_class), nrow(data_class) * .75)
+  train_class = data_class[train_index,]
+  test_class = data_class[-train_index,]
+  return(list(train_class,test_class))
+}
+
+train_test_data = function(data){
+  data$labels = as.factor(data$labels)
+  X_train = rbind(train_test(data,1)[[1]],train_test(data,2)[[1]],train_test(data,3)[[1]])
+  rownames(X_train) = 1:nrow(X_train)
+  X_test = rbind(train_test(data,1)[[2]],train_test(data,2)[[2]],train_test(data,3)[[2]])
+  rownames(X_test) = 1:nrow(X_test)
+  return(list(X_train,X_test))
+}
+
+labeled_X = as.data.frame(cbind(X, "labels"=auto_mpg$labels))
+X_train = train_test_data(labeled_X)[[1]]
+X_test = train_test_data(labeled_X)[[2]]
+
+labeled_scaled_X = as.data.frame(cbind(scaled_X, "labels"=auto_mpg$labels))
+scaled_X_train = train_test_data(labeled_scaled_X)[[1]]
+scaled_X_test = train_test_data(labeled_scaled_X)[[2]]
+
+labeled_pca_X = as.data.frame(cbind(pca_X, "labels"=auto_mpg$labels))
+pca_X_train = train_test_data(labeled_pca_X)[[1]]
+pca_X_test = train_test_data(labeled_pca_X)[[2]]
+
+data_list <- list(X_train, X_test, scaled_X_train, scaled_X_test, pca_X_train, pca_X_test)
+names(data_list) <- c("ori train", "ori test", "stand train", "stand test", "pca train", "pca test")
+# numeric summaries
+#summary(X_train)
+#summary(X_test)
+```
+Table 1 and 2 are the numeric summaries of training set and test set respectively. The numerical summaries show that the distribution of each variable is similar between the training set and test test.
+```{r echo=FALSE}
+summary_X_train = data.frame(
+  "Mean" = c(23.72, 195.1, 104.1, 2962, 15.51),
+  "Standard deviation" = sqrt(diag(var(X_train))[-6]),
+  "Min" = c(10, 68, 46, 1613, 8),
+  "Max" = c(46.6, 455, 230, 5140, 24.8))
+summary_X_test = data.frame(
+  "Mean" = c(23.37, 191.7, 105.8, 2964, 15.2),
+  "Standard deviation" = sqrt(diag(var(X_test))[-6]),
+  "Min" = c(11, 78, 46, 1795, 8.5),
+  "Max" = c(40.80, 455, 225, 5140, 23.50))
+
+knitr::kable(summary_X_train, digits = 2,
+             col.names = c("Mean(train)", "Standard deviation(train)", "Min(train)", 
+                           "Max(train)"),
+             caption = "Numerical summary of the original train data")
+
+knitr::kable(summary_X_test, digits = 2,
+             col.names = c("Mean(test)", "Standard deviation(test)", 
+                           "Min(test)", "Max(test)"),
+             caption = "Numerical summary of the original test data")
+```
+
+
+```{r echo=FALSE,message=FALSE,fig.width=3.5,fig.height=3.5,fig.cap="Scatterplots of original trainingdata set"}
+# scatterplots
+par(mfrow = c(1, 2))
+scatter_plot = function(data){
+  ggpairs(as.data.frame(data), diag=list(continuous='barDiag'),
+        upper=list(continuous='points'),
+        lower=list(continuous='points'))
+}
+
+scatter_plot(X_train)
+#scatter_plot(scaled_X_train)
+#scatter_plot(scaled_X_test)
+#scatter_plot(pca_X_train)
+#scatter_plot(pca_X_test)
+```
+
+```{r echo=FALSE,fig.width=3.5,fig.height=3.5,fig.cap="Scatterplots of original test data set",message=FALSE}
+scatter_plot(X_test)
+```
+
+Figure 1 and Figure 2 are the scatterplots of the original training set and test set. In the scatterplots, we can see that the correlations between the variables look similar in both training and test sets. Therefore, our division of the training set and test set is successful and they are visually "compatible".
+
+
+### II. LDA and QDA
+
+Secondly, we apply the LDA and QDA to the original data, scaled data and PCA-preprocessed data. We build the model based on the training data set. Using that model, we predict the labels of the test data set and compare it with the actual labels of the test data set to calculate the error rates.  
+
+
+```{r echo=FALSE}
+# b
+# apply LDA and QDA
+lda_data = function(train_data, test_data){
+  X_lda = lda(data=train_data, labels~.)
+  X_pred = predict(X_lda, test_data)
+  lda_table = table(test_data$labels, X_pred$class)
+  error_rate = 1-sum(diag(lda_table))/sum(lda_table)
+  return(error_rate)
+}
+
+qda_data = function(train_data, test_data){
+  X_qda = qda(data=train_data, labels~.)
+  X_pred = predict(X_qda, test_data)
+  qda_table = table(test_data$labels, X_pred$class)
+  error_rate = 1-sum(diag(qda_table))/sum(qda_table)
+  return(error_rate)
+}
+
+# the original data
+X_error_rate_l = lda_data(X_train, X_test)
+X_error_rate_q = qda_data(X_train, X_test)
+
+# the standardized data
+scaled_X_error_rate_l = lda_data(scaled_X_train, scaled_X_test)
+scaled_X_error_rate_q = qda_data(scaled_X_train, scaled_X_test)
+
+# PCA-preprocessed data
+pca_X_error_rate_l = lda_data(pca_X_train, pca_X_test)
+pca_X_error_rate_q = qda_data(pca_X_train, pca_X_test)
+```
+
+Table 3 summarize the error rates of LDA and QDA models for all three data sets. The error rates for the original data and the scaled data are always the same and they are smaller than those calculated based on the PCA preprocessed data. 
+
+
+```{r echo=FALSE}
+lda_qda_error_rates = data.frame(
+  "LDA error rate" = c(X_error_rate_l, scaled_X_error_rate_l, pca_X_error_rate_l),
+  "QDA error rate" = c(X_error_rate_q, scaled_X_error_rate_q, pca_X_error_rate_q),
+  row.names = c("Original data", "Scaled data", "PCA preprocessed data")
+)
+
+knitr::kable(lda_qda_error_rates, digits = 4,
+             col.names = c("LDA error rate", "QDA error rate"),
+             caption = "Error rates summary of LDA and QDA")
+```
+
+Since LDA is another method of dimension reduction, we are able to reduce the data into 2 dimensions with two discriminant directions. Figure 3 shows the plot of the data projected onto these discriminant directions. As we can see in the graph, classes are almost clearly divided. The projection plots of the original data and the scaled data are identical, because the standardization won't make any difference between it and the original data set. While the distribution of the points on the projection plot of the pca preprocessed data looks similar to thoses on previous two plots, there are more points which crossed the boundaries and mixed with near groups. That's because the PCA is trying to keep the variance as large as possible, it is more difficult to classify correctly. Therefore more points are mixed together and it correspond to the higer error rates of the PCA preprocessed data.
+
+```{r echo=FALSE, fig.cap="Projected data onto the first two discriminant directions"}
+# orginial data set
+X_pred = predict(lda(data=X_train, labels~.), labeled_X)
+dis_dir = as.data.frame(cbind("V1"=X_pred$x[,1], "V2"=X_pred$x[,2], "labels"=labeled_X$labels))
+dis_dir$labels = as.factor(dis_dir$labels)
+p1<-ggplot(data=dis_dir, aes(x=V1,y=V2)) + 
+  geom_point(aes(colour=labels, shape=labels)) +
+  ggtitle("Original data set")
+
+scaled_X_pred = predict(lda(data=scaled_X_train, labels~.), labeled_scaled_X)
+dis_dir_scaled = as.data.frame(cbind("V1"=scaled_X_pred$x[,1], "V2"=scaled_X_pred$x[,2], 
+                                     "labels"=labeled_scaled_X$labels))
+dis_dir_scaled$labels = as.factor(dis_dir_scaled$labels)
+p2<-ggplot(data=dis_dir_scaled, aes(x=V1,y=V2)) + 
+  geom_point(aes(colour=labels, shape=labels)) +
+  ggtitle("Scaled data set")
+
+pca_X_pred = predict(lda(data=pca_X_train, labels~.), labeled_pca_X)
+dis_dir_pca = as.data.frame(cbind("V1"=pca_X_pred$x[,1], "V2"=pca_X_pred$x[,2], 
+                                     "labels"=labeled_pca_X$labels))
+dis_dir_pca$labels = as.factor(dis_dir_pca$labels)
+p3<-ggplot(data=dis_dir_pca, aes(x=V1,y=V2)) + 
+  geom_point(aes(colour=labels, shape=labels)) +
+  ggtitle("PCA data set")
+
+grid.arrange(p1,p2,p3,nrow=2)
+```
+
+### III. Logistic Regression 
+
+Next, we conduct the logistic regression onto the three data sets. We build the multinomial logisic regression model on the data set, predict the labels and compare them with the actual labels to calculate the error rates. The error rates are summarized below in Table 4.
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+# c
+# logistic regression
+logistic = function(data){
+  logit = multinom(labels ~ ., data=data,trace=FALSE)
+  logit_prediction = predict(logit, data, type = "class")
+  train_mn = mean(logit_prediction != data$labels)
+  return(train_mn)
+}
+
+X_log_error_train = logistic(X_train)
+X_log_error_test = logistic(X_test)
+scaled_X_log_error_train = logistic(scaled_X_train)
+scaled_X_log_error_test = logistic(scaled_X_test)
+pca_X_log_error_train = logistic(pca_X_train)
+pca_X_log_error_test = logistic(pca_X_test)
+
+```
+
+```{r echo=FALSE}
+logit_error_rates = data.frame(
+  "Train error rate" = c(X_log_error_train, scaled_X_log_error_train, pca_X_log_error_train),
+  "Test error rate" = c(X_log_error_test, scaled_X_log_error_test, pca_X_log_error_test),
+  row.names = c("Original data", "Scaled data", "PCA preprocessed data")
+)
+
+knitr::kable(logit_error_rates, digits = 4,
+             col.names = c("Train error rate", "Test error rate"),
+             caption = "Error rates summary of logistic regression")
+```
+
+\newpage
+### IV. KNN
+
+At last, we apply the nearest neihbor to each of the gree versions of the data. Since we are dealing with quantitative variables, I chose to use euclidean distance in determining the nearest neighbors. 
+
+Figure 4 shows that the error rates are related to k values. We have to use the trend of the cross validation error rates to choose an appropriate k. For the original data set, the lowest error value occurs at k = 1. However, we cannot choose k as 1 because it is overfitting. So we choose the next smallest error rate, which is the error rate when k = 3. For the scaled data, the smallest error rate occurs at k = 3. For the PCA preprocessed data, the smallest error rate occurs at k = 9. It is worth to notice that all of our chose k values are odd numbers because it will classify more accurately when there is a tie. When the smallest error rates occur at multiple k's, we would choose a larger k since we prefer a simpler model. 
+
+After choosing the k value, we have our final models. The error rates calculated from the test data sets are used to test the goodness of fit for the models, so we cannot choose k values from the test data. 
+
+```{r echo=FALSE,fig.cap="Comparison of error rates for different k"}
+# d
+get_fold_indices = function(n, num_folds, fold_id){
+  fold_size = n %/% num_folds
+  if (fold_id == num_folds) {
+    train_indices = 1 : ((fold_id - 1) * fold_size)
+  }
+  else if (fold_id == 1) {
+    train_indices = (fold_size + 1) : n
+  }
+  else {
+    train_indices = c(1 : ((fold_id - 1) * fold_size), (fold_id  * fold_size + 1) : n)
+  }
+  
+  test_indices = (1:n)[-train_indices]
+  indices = list(train_indices, test_indices)
+  return(indices)
+}
+
+knn_cv = function(data, folds, k){
+  n = dim(data)[1]
+  data = data[sample(n),]
+  
+  rates = c()
+  for (i in 1:folds) {
+    train_indices = get_fold_indices(n, folds, i)[[1]]
+    test_indices = get_fold_indices(n, folds, i)[[2]]
+    train_data = data[train_indices, ]
+    test_data = data[test_indices, ]
+    
+    knn_results = knn(train = train_data[ , -ncol(data)], cl = train_data$labels, 
+                test = test_data[ , -ncol(data)], k = k)
+    error_rate = mean(knn_results != test_data$labels)
+    rates = c(rates, error_rate)  
+    }
+  return(mean(rates))
+}
+
+error_cal = function(train_data, test_data, k){
+  tr_rates = c()
+  te_rates = c()
+  cv_rates = c()
+  for (i in 1:k) {
+    #training error
+    knn_lab_tr = knn(train = train_data[ , -ncol(train_data)], cl = train_data$labels, 
+                  test = train_data[ , -ncol(train_data)], k = i)
+    tr_error_rate = mean(knn_lab_tr != train_data$labels)
+    tr_rates = c(tr_rates, tr_error_rate)
+    # cv error
+    tr_error_rate = knn_cv(train_data, 10, i)
+    cv_rates = c(cv_rates, tr_error_rate)
+    
+    # test error
+    knn_lab_te = knn(train = train_data[ , -ncol(train_data)], cl = train_data$labels, 
+                  test = test_data[ , -ncol(test_data)], k = i)
+    te_error_rate = mean(knn_lab_te != test_data$labels)
+    te_rates = c(te_rates, te_error_rate)
+  }
+  
+  df = as.data.frame(cbind("tranining error"=tr_rates, "cv error"=cv_rates, "test error"=te_rates))
+  return(df)
+
+}
+
+
+X_errors = error_cal(X_train, X_test, 30)
+scaled_X_errors = error_cal(scaled_X_train, scaled_X_test, 30)
+pca_X_errors = error_cal(pca_X_train, pca_X_test, 30)
+
+par(mfrow = c(2, 2))
+cols = c("Training"="#3591d1", "Cross validation"="orange", "Test"="green")
+p4<-ggplot(data=X_errors) +
+  geom_line(aes(x = 1:nrow(X_errors), y = X_errors[,1], colour="Training")) +
+  geom_line(aes(x = 1:nrow(X_errors), y = X_errors[,2], colour="Cross validation")) +
+  geom_line(aes(x = 1:nrow(X_errors), y = X_errors[,3], colour="Test")) +
+  scale_colour_manual(name="Error rates", values=cols) +
+  xlab("k") + ylab("Error rate") +
+  ggtitle("Original data")
+p5<-ggplot(data=scaled_X_errors) +
+  geom_line(aes(x = 1:nrow(scaled_X_errors), y = scaled_X_errors[,1], colour="Training")) +
+  geom_line(aes(x = 1:nrow(scaled_X_errors), y = scaled_X_errors[,2], colour="Cross validation")) +
+  geom_line(aes(x = 1:nrow(scaled_X_errors), y = scaled_X_errors[,3], colour="Test")) +
+  scale_colour_manual(name="Error rates", values=cols) +
+  xlab("k") + ylab("Error rate") +
+  ggtitle("Scaled data")
+p6<-ggplot(data=pca_X_errors) +
+  geom_line(aes(x = 1:nrow(pca_X_errors), y = pca_X_errors[,1], colour="Training")) +
+  geom_line(aes(x = 1:nrow(pca_X_errors), y = pca_X_errors[,2], colour="Cross validation")) +
+  geom_line(aes(x = 1:nrow(pca_X_errors), y = pca_X_errors[,3], colour="Test")) +
+  scale_colour_manual(name="Error rates", values=cols) +
+  xlab("k") + ylab("Error rate") +
+  ggtitle("PCA preprocessed data")
+
+grid.arrange(p4,p5,p6,nrow=2)
+```
+
+### V. Comments
+
+Table 5 summarises the error rates from the three classification methods we used in this report. 
+
+
+```{r echo=FALSE}
+all_error_rates = data.frame(
+  "LDA" = c(X_error_rate_l, scaled_X_error_rate_l, pca_X_error_rate_l),
+  "Logistic" = c(X_log_error_train, scaled_X_log_error_train, pca_X_log_error_train),
+  "knn" = c(X_errors[3,1],X_errors[3,2],X_errors[9,3]),
+  row.names = c("Original data", "Scaled data", "PCA preprocessed data")
+)
+knitr::kable(all_error_rates, digits = 4,
+             caption="Comparison of error rates from three models")
+```
+
+Comparing three methods, we found that the error rates for Logistic regression is the smallest among three methods. However, logistic regression does not work well when the class is not well seperated. LDA performs stabler than the other two methods, it works will even when the normal assumption is not satisfied. KNN method is simple and easy to use. However, the performance of it highly depends on the choice of k, which needs experiments and will affects the result enormously. Since KNN classifier mostly uses the euclidean distance to find k nearest neighbors, the units of the variables also play a huge role in the accuracy of the classification results. 
+
+To comment on the role of data processing on each method, we found that for the LDA method, the error rates for the original data and test data are the same becuase the standardization does not affect the LDA method during classification. We can see that for all three methods, error rates for PCA preprocessed data are always the largest. As I mentioned above in section II, when we perform PCA, it is trying to maximize the variance and making it harder to seperate the data into different groups. PCA didn't take the classification purpose into account, therefore the error rates are larger. In conclusion, the standardization of the data may help a little for the classification while the PCA preprocessing does not improve the results at all. 
+
+\newpage
+## Index
+
+```{r eval=FALSE}
+library(ggplot2)
+library(GGally)
+library(gridExtra)
+library(dplyr)
+library(MASS)  #lda
+library(nnet)  #multinom
+library(class) #knn
+
+## read and preprocess the data
+setwd("/Users/Voodooal/Documents/STATS503/hw3")
+auto_mpg = read.table("auto-mpg.data")
+colnames(auto_mpg) = c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                       "model_year", "origin", "car_name")
+
+# deal with the missing values in variable horsepower
+auto_mpg = auto_mpg %>%
+  filter(horsepower != "?")
+auto_mpg$horsepower = as.numeric(as.character(auto_mpg$horsepower))
+
+auto_mpg$labels = (auto_mpg$cylinders <= 5) * -1 
+auto_mpg$labels = auto_mpg$labels + (auto_mpg$cylinders == 6) * 1 
+auto_mpg$labels = auto_mpg$labels + 1
+auto_mpg$labels[auto_mpg$labels == 1] = 3
+auto_mpg$labels[auto_mpg$labels == 0] = 1
+auto_mpg$labels = as.factor(auto_mpg$labels)
+
+# standardize all continuous variables
+X = auto_mpg[, c("mpg", "displacement", "horsepower", "weight", "acceleration")]
+colnames(X) = c("mpg", "displacement", "horsepower", "weight", "acceleration")
+# standardized X
+scaled_X = scale(X)
+# perform PCA 
+auto_pca = princomp(scaled_X, cor = T)
+pca_X = auto_pca$scores[,1:2]
+
+# a
+# select training set and test set
+train_test = function(data, class){
+  data_class = data %>%
+    filter(labels==class)
+  set.seed(133)
+  train_index = sample(1:nrow(data_class), nrow(data_class) * .75)
+  train_class = data_class[train_index,]
+  test_class = data_class[-train_index,]
+  return(list(train_class,test_class))
+}
+
+train_test_data = function(data){
+  data$labels = as.factor(data$labels)
+  X_train = rbind(train_test(data,1)[[1]],train_test(data,2)[[1]],train_test(data,3)[[1]])
+  rownames(X_train) = 1:nrow(X_train)
+  X_test = rbind(train_test(data,1)[[2]],train_test(data,2)[[2]],train_test(data,3)[[2]])
+  rownames(X_test) = 1:nrow(X_test)
+  return(list(X_train,X_test))
+}
+
+labeled_X = as.data.frame(cbind(X, "labels"=auto_mpg$labels))
+X_train = train_test_data(labeled_X)[[1]]
+X_test = train_test_data(labeled_X)[[2]]
+
+labeled_scaled_X = as.data.frame(cbind(scaled_X, "labels"=auto_mpg$labels))
+scaled_X_train = train_test_data(labeled_scaled_X)[[1]]
+scaled_X_test = train_test_data(labeled_scaled_X)[[2]]
+
+labeled_pca_X = as.data.frame(cbind(pca_X, "labels"=auto_mpg$labels))
+pca_X_train = train_test_data(labeled_pca_X)[[1]]
+pca_X_test = train_test_data(labeled_pca_X)[[2]]
+
+data_list <- list(X_train, X_test, scaled_X_train, scaled_X_test, pca_X_train, pca_X_test)
+names(data_list) <- c("ori train", "ori test", "stand train", "stand test", "pca train", "pca test")
+# numeric summaries
+#summary(X_train)
+#summary(X_test)
+
+summary_X_train = data.frame(
+  "Mean" = c(23.72, 195.1, 104.1, 2962, 15.51),
+  "Standard deviation" = sqrt(diag(var(X_train))[-6]),
+  "Min" = c(10, 68, 46, 1613, 8),
+  "Max" = c(46.6, 455, 230, 5140, 24.8))
+summary_X_test = data.frame(
+  "Mean" = c(23.37, 191.7, 105.8, 2964, 15.2),
+  "Standard deviation" = sqrt(diag(var(X_test))[-6]),
+  "Min" = c(11, 78, 46, 1795, 8.5),
+  "Max" = c(40.80, 455, 225, 5140, 23.50))
+
+knitr::kable(summary_X_train, digits = 2,
+             col.names = c("Mean(train)", "Standard deviation(train)", "Min(train)", 
+                           "Max(train)"),
+             caption = "Numerical summary of the original train data")
+
+knitr::kable(summary_X_test, digits = 2,
+             col.names = c("Mean(test)", "Standard deviation(test)", 
+                           "Min(test)", "Max(test)"),
+             caption = "Numerical summary of the original test data")
+
+# scatterplots
+par(mfrow = c(1, 2))
+scatter_plot = function(data){
+  ggpairs(as.data.frame(data), diag=list(continuous='barDiag'),
+        upper=list(continuous='points'),
+        lower=list(continuous='points'))
+}
+
+scatter_plot(X_train)
+#scatter_plot(scaled_X_train)
+#scatter_plot(scaled_X_test)
+#scatter_plot(pca_X_train)
+#scatter_plot(pca_X_test)
+
+scatter_plot(X_test)
+
+# b
+# apply LDA and QDA
+lda_data = function(train_data, test_data){
+  X_lda = lda(data=train_data, labels~.)
+  X_pred = predict(X_lda, test_data)
+  lda_table = table(test_data$labels, X_pred$class)
+  error_rate = 1-sum(diag(lda_table))/sum(lda_table)
+  return(error_rate)
+}
+
+qda_data = function(train_data, test_data){
+  X_qda = qda(data=train_data, labels~.)
+  X_pred = predict(X_qda, test_data)
+  qda_table = table(test_data$labels, X_pred$class)
+  error_rate = 1-sum(diag(qda_table))/sum(qda_table)
+  return(error_rate)
+}
+
+# the original data
+X_error_rate_l = lda_data(X_train, X_test)
+X_error_rate_q = qda_data(X_train, X_test)
+
+# the standardized data
+scaled_X_error_rate_l = lda_data(scaled_X_train, scaled_X_test)
+scaled_X_error_rate_q = qda_data(scaled_X_train, scaled_X_test)
+
+# PCA-preprocessed data
+pca_X_error_rate_l = lda_data(pca_X_train, pca_X_test)
+pca_X_error_rate_q = qda_data(pca_X_train, pca_X_test)
+
+lda_qda_error_rates = data.frame(
+  "LDA error rate" = c(X_error_rate_l, scaled_X_error_rate_l, pca_X_error_rate_l),
+  "QDA error rate" = c(X_error_rate_q, scaled_X_error_rate_q, pca_X_error_rate_q),
+  row.names = c("Original data", "Scaled data", "PCA preprocessed data")
+)
+
+knitr::kable(lda_qda_error_rates, digits = 4,
+             col.names = c("LDA error rate", "QDA error rate"),
+             caption = "Error rates summary of LDA and QDA")
+
+# orginial data set
+X_pred = predict(lda(data=X_train, labels~.), labeled_X)
+dis_dir = as.data.frame(cbind("V1"=X_pred$x[,1], "V2"=X_pred$x[,2], "labels"=labeled_X$labels))
+dis_dir$labels = as.factor(dis_dir$labels)
+p1<-ggplot(data=dis_dir, aes(x=V1,y=V2)) + 
+  geom_point(aes(colour=labels, shape=labels)) +
+  ggtitle("Original data set")
+
+scaled_X_pred = predict(lda(data=scaled_X_train, labels~.), labeled_scaled_X)
+dis_dir_scaled = as.data.frame(cbind("V1"=scaled_X_pred$x[,1], "V2"=scaled_X_pred$x[,2], 
+                                     "labels"=labeled_scaled_X$labels))
+dis_dir_scaled$labels = as.factor(dis_dir_scaled$labels)
+p2<-ggplot(data=dis_dir_scaled, aes(x=V1,y=V2)) + 
+  geom_point(aes(colour=labels, shape=labels)) +
+  ggtitle("Scaled data set")
+
+pca_X_pred = predict(lda(data=pca_X_train, labels~.), labeled_pca_X)
+dis_dir_pca = as.data.frame(cbind("V1"=pca_X_pred$x[,1], "V2"=pca_X_pred$x[,2], 
+                                     "labels"=labeled_pca_X$labels))
+dis_dir_pca$labels = as.factor(dis_dir_pca$labels)
+p3<-ggplot(data=dis_dir_pca, aes(x=V1,y=V2)) + 
+  geom_point(aes(colour=labels, shape=labels)) +
+  ggtitle("PCA data set")
+
+grid.arrange(p1,p2,p3,nrow=2)
+
+# c
+# logistic regression
+logistic = function(data){
+  logit = multinom(labels ~ ., data=data,trace=FALSE)
+  logit_prediction = predict(logit, data, type = "class")
+  train_mn = mean(logit_prediction != data$labels)
+  return(train_mn)
+}
+
+X_log_error_train = logistic(X_train)
+X_log_error_test = logistic(X_test)
+scaled_X_log_error_train = logistic(scaled_X_train)
+scaled_X_log_error_test = logistic(scaled_X_test)
+pca_X_log_error_train = logistic(pca_X_train)
+pca_X_log_error_test = logistic(pca_X_test)
+
+
+logit_error_rates = data.frame(
+  "Train error rate" = c(X_log_error_train, scaled_X_log_error_train, pca_X_log_error_train),
+  "Test error rate" = c(X_log_error_test, scaled_X_log_error_test, pca_X_log_error_test),
+  row.names = c("Original data", "Scaled data", "PCA preprocessed data")
+)
+
+knitr::kable(logit_error_rates, digits = 4,
+             col.names = c("Train error rate", "Test error rate"),
+             caption = "Error rates summary of logistic regression")
+
+# d
+get_fold_indices = function(n, num_folds, fold_id){
+  fold_size = n %/% num_folds
+  if (fold_id == num_folds) {
+    train_indices = 1 : ((fold_id - 1) * fold_size)
+  }
+  else if (fold_id == 1) {
+    train_indices = (fold_size + 1) : n
+  }
+  else {
+    train_indices = c(1 : ((fold_id - 1) * fold_size), (fold_id  * fold_size + 1) : n)
+  }
+  
+  test_indices = (1:n)[-train_indices]
+  indices = list(train_indices, test_indices)
+  return(indices)
+}
+
+knn_cv = function(data, folds, k){
+  n = dim(data)[1]
+  data = data[sample(n),]
+  
+  rates = c()
+  for (i in 1:folds) {
+    train_indices = get_fold_indices(n, folds, i)[[1]]
+    test_indices = get_fold_indices(n, folds, i)[[2]]
+    train_data = data[train_indices, ]
+    test_data = data[test_indices, ]
+    
+    knn_results = knn(train = train_data[ , -ncol(data)], cl = train_data$labels, 
+                test = test_data[ , -ncol(data)], k = k)
+    error_rate = mean(knn_results != test_data$labels)
+    rates = c(rates, error_rate)  
+    }
+  return(mean(rates))
+}
+
+error_cal = function(train_data, test_data, k){
+  tr_rates = c()
+  te_rates = c()
+  cv_rates = c()
+  for (i in 1:k) {
+    #training error
+    knn_lab_tr = knn(train = train_data[ , -ncol(train_data)], cl = train_data$labels, 
+                  test = train_data[ , -ncol(train_data)], k = i)
+    tr_error_rate = mean(knn_lab_tr != train_data$labels)
+    tr_rates = c(tr_rates, tr_error_rate)
+    # cv error
+    tr_error_rate = knn_cv(train_data, 10, i)
+    cv_rates = c(cv_rates, tr_error_rate)
+    
+    # test error
+    knn_lab_te = knn(train = train_data[ , -ncol(train_data)], cl = train_data$labels, 
+                  test = test_data[ , -ncol(test_data)], k = i)
+    te_error_rate = mean(knn_lab_te != test_data$labels)
+    te_rates = c(te_rates, te_error_rate)
+  }
+  
+  df = as.data.frame(cbind("tranining error"=tr_rates, "cv error"=cv_rates, "test error"=te_rates))
+  return(df)
+
+}
+
+
+X_errors = error_cal(X_train, X_test, 30)
+scaled_X_errors = error_cal(scaled_X_train, scaled_X_test, 30)
+pca_X_errors = error_cal(pca_X_train, pca_X_test, 30)
+
+par(mfrow = c(2, 2))
+cols = c("Training"="#3591d1", "Cross validation"="orange", "Test"="green")
+p4<-ggplot(data=X_errors) +
+  geom_line(aes(x = 1:nrow(X_errors), y = X_errors[,1], colour="Training")) +
+  geom_line(aes(x = 1:nrow(X_errors), y = X_errors[,2], colour="Cross validation")) +
+  geom_line(aes(x = 1:nrow(X_errors), y = X_errors[,3], colour="Test")) +
+  scale_colour_manual(name="Error rates", values=cols) +
+  xlab("k") + ylab("Error rate") +
+  ggtitle("Original data")
+p5<-ggplot(data=scaled_X_errors) +
+  geom_line(aes(x = 1:nrow(scaled_X_errors), y = scaled_X_errors[,1], colour="Training")) +
+  geom_line(aes(x = 1:nrow(scaled_X_errors), y = scaled_X_errors[,2], colour="Cross validation")) +
+  geom_line(aes(x = 1:nrow(scaled_X_errors), y = scaled_X_errors[,3], colour="Test")) +
+  scale_colour_manual(name="Error rates", values=cols) +
+  xlab("k") + ylab("Error rate") +
+  ggtitle("Scaled data")
+p6<-ggplot(data=pca_X_errors) +
+  geom_line(aes(x = 1:nrow(pca_X_errors), y = pca_X_errors[,1], colour="Training")) +
+  geom_line(aes(x = 1:nrow(pca_X_errors), y = pca_X_errors[,2], colour="Cross validation")) +
+  geom_line(aes(x = 1:nrow(pca_X_errors), y = pca_X_errors[,3], colour="Test")) +
+  scale_colour_manual(name="Error rates", values=cols) +
+  xlab("k") + ylab("Error rate") +
+  ggtitle("PCA preprocessed data")
+
+grid.arrange(p4,p5,p6,nrow=2)
+
+all_error_rates = data.frame(
+  "LDA" = c(X_error_rate_l, scaled_X_error_rate_l, pca_X_error_rate_l),
+  "Logistic" = c(X_log_error_train, scaled_X_log_error_train, pca_X_log_error_train),
+  "knn" = c(X_errors[3,1],X_errors[3,2],X_errors[9,3]),
+  row.names = c("Original data", "Scaled data", "PCA preprocessed data")
+)
+knitr::kable(all_error_rates, digits = 4,
+             caption="Comparison of error rates from three models")
+```

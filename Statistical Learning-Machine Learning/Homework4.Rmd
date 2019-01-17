@@ -1,0 +1,458 @@
+---
+title: "Homework 4"
+author: "Mengyi Yuan"
+date: "March 13, 2018"
+output: pdf_document
+---
+
+```{r}
+library(e1071)
+library(ggplot2)
+library(rpart) #decision tree
+library(rpart.plot) #decision tree
+library(neuralnet)
+library(nnet) #class.ind
+```
+
+```{r}
+setwd("/Users/Voodooal/Documents/STATS503/hw4")
+spam_train = read.table('spam-train.txt',sep=',')
+spam_test = read.table('spam-test.txt',sep=',')
+spam_train[,58] = as.factor(spam_train[,58])
+spam_test[,58] = as.factor(spam_test[,58])
+spam_train[,1:57] = scale(spam_train[,1:57], center = TRUE, scale = TRUE)
+spam_test[,1:57] = scale(spam_test[,1:57], center = TRUE, scale = TRUE)
+```
+
+```{r}
+# SVM linear
+spam.svm = svm(V58 ~ ., data=spam_train, kernel="linear", cost=1)
+summary(spam.svm)
+table(spam_test$V58, predict(spam.svm, spam_test))
+1-sum(diag(table(spam_test$V58, predict(spam.svm ,spam_test))))/nrow(spam_test)
+```
+
+```{r}
+# SVM polynomial
+spam.svm.p = svm(V58 ~ ., data=spam_train, kernel="polynomial", cost=1, degree=2)
+#summary(spam.svm.p)
+table(spam_test$V58, predict(spam.svm.p, spam_test))
+1-sum(diag(table(spam_test$V58, predict(spam.svm.p, spam_test))))/nrow(spam_test)
+```
+
+```{r}
+# SVM radial(Gaussian)
+spam.svm.r = svm(V58 ~ ., data=spam_train, kernel="radial", cost=1)
+summary(spam.svm.r)
+table(spam_test$V58, predict(spam.svm.r, spam_test))
+1-sum(diag(table(spam_test$V58, predict(spam.svm.r, spam_test))))/nrow(spam_test)
+```
+
+```{r}
+library(sparsediscrim)
+library(reshape2)
+set.seed(1070)
+folds = cv_partition(spam_train$V58, num_folds = 10)
+
+train_cv_error_svm = function(cost=cost, gamma=1/57, degree=3, kernel) {
+  #Train
+  spam.svm = svm(V58 ~ ., data=spam_train,
+                 kernel=kernel, cost=cost, degree=degree, gamma=gamma)
+  train_error = sum(spam.svm$fitted != spam_train$V58) / nrow(spam_train)
+  
+  #Test
+  test_error = sum(predict(spam.svm, spam_test) != spam_test$V58) / nrow(spam_test)
+  
+  #CV error
+  spam.cverr = sapply(folds, function(fold) {
+    svmcv = svm(V58 ~ ., data = spam_train, kernel=kernel, cost=cost, gamma=gamma, degree=degree, subset = fold$training)
+    svmpred = predict(svmcv, spam_train[fold$test,])
+    return(sum(svmpred != spam_train$V58[fold$test]) / length(fold$test))
+  })
+  cv_error = mean(spam.cverr)
+  return(c(train_error, cv_error, test_error))
+}
+```
+
+```{r}
+# tuning parameter; linear
+costs = exp(-2:2)
+spam_cost_errors_l = sapply(costs, function(cost) train_cv_error_svm(cost, kernel="linear"))
+df_errs_l = data.frame(t(spam_cost_errors_l), costs)
+colnames(df_errs_l) = c('Train', 'CV', 'Test', 'Cost')
+
+costs_37 = exp(3:4)
+spam_cost_errors_l37 = sapply(costs_37, function(cost) train_cv_error_svm(cost, kernel="linear"))
+df_errs_l37 = data.frame(t(spam_cost_errors_l37), costs_37)
+colnames(df_errs_l37) = c('Train', 'CV', 'Test', 'Cost')
+
+#df_errs_l_all = rbind(df_errs_l, df_errs_l37)
+df_errs_l_all = read.table("2-svm-linear.txt", header=T, sep=',')
+View(df_errs_l_all)
+
+df_err_l_long = melt(df_errs_l_all[,-1], id="Cost")
+ggplot(df_err_l_long, aes_string(x="Cost", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Cost",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  ggtitle("Classification errors for SVM with linear kernel")
+```
+
+```{r}
+# tuning parameter; polynomial
+degree = 1:5
+costs_p = exp(-2:4)
+
+cverr_p = sapply(costs_p, function(cost) train_cv_error_svm(cost=cost, degree=degree[1], kernel="polynomial"))
+for (i in 2:length(degree)) {
+  cverr_p_new = sapply(costs_p, function(cost) train_cv_error_svm(cost=cost, degree=degree[i], kernel="polynomial"))
+  cverr_p = cbind(cverr_p, cverr_p_new)
+}
+
+degree_col = c(rep(1:5, each = length(costs_p)))
+#df_cverr_p = data.frame(t(cverr_p), rep(costs_p, length(degree)), degree_col)
+#colnames(df_cverr_p) = c('Train', 'CV', 'Test', 'Cost', 'Degree')
+
+df_cverr_p = read.table("2-svm-polynomial.txt", header=T, sep=',')
+
+df_err_p_long = melt(df_cverr_p[,-1], id=c("Cost","Degree"))
+ggplot(df_err_p_long, aes_string(x="Cost", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Cost",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  facet_wrap( ~ Degree, ncol = 3) +
+  ggtitle("Classification Errors for SVM with polynomial kernel")
+
+ggplot(df_err_p_long, aes_string(x="Degree", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Degree",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  facet_wrap( ~ Cost, ncol = 3) +
+  ggtitle("Classification Errors for SVM with polynomial kernel")
+
+# write.csv(df_cverr_p, "2-svm-polynomial.txt")
+```
+
+```{r}
+# tuning parameter; radial
+costs_r = exp(-2:2)
+gamma_r = exp(-5:0)
+
+cverr_r = sapply(costs_r, function(cost) train_cv_error_svm(cost=cost, gamma=gamma_r[1], kernel="radial"))
+for (i in 2:length(gamma_r)) {
+  cverr_r_new = sapply(costs_r, function(cost) train_cv_error_svm(cost=cost, gamma=gamma_r[i], kernel="radial"))
+  cverr_r = cbind(cverr_r, cverr_r_new)
+}
+
+g_col = c(rep(1:6, each = length(costs_r)))
+gamma_col = c(rep(gamma_r, each = length(costs_r)))
+# df_cverr_r = data.frame(t(cverr_r), rep(costs_r, length(gamma_r)), gamma_col, g_col)
+# colnames(df_cverr_r) = c('Train', 'CV', 'Test', 'Cost', 'Gamma', 'g')
+
+df_cverr_r = read.table("2-svm-radial.txt", header=T, sep=',')
+
+df_err_r_long = melt(df_cverr_r[,-1], id=c("Cost","Gamma", "g"))
+ggplot(df_err_r_long, aes_string(x="Cost", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Cost",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  facet_wrap( ~ g, ncol = 3) +
+  ggtitle("Classification Errors for SVM with radial kernel")
+
+ggplot(df_err_r_long, aes_string(x="Gamma", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Gamma",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  facet_wrap( ~ Cost, ncol = 3) +
+  ggtitle("Classification Errors for SVM with radial kernel")
+# write.csv(df_cverr_r, "2-svm-radial.txt")
+```
+
+```{r}
+# neural networks
+spam_formula <- formula(paste("c1 + c2", paste(colnames(spam_train)[-58], collapse = " + "), sep = " ~ "))
+spam_train_nn = cbind(spam_train, class.ind(as.factor(spam_train$V58)))
+colnames(spam_train_nn) <- c(colnames(spam_train), c("c1", "c2"))
+spam_neuralnet_train <- neuralnet(spam_formula, data = spam_train_nn, hidden = 5, linear.output = F, lifesign = "full")
+
+pred = function(nn, dat) {
+  yhat = compute(nn, dat)$net.result
+  yhat = apply(yhat, 1, which.max)
+  return(yhat)
+}
+
+nn_cv <- function(train_df, cv_formula, num_nodes, num_folds = 10) {
+  cv_folds <- split(1:nrow(train_df), 1:num_folds)
+  mean(sapply(cv_folds, function(fold) {
+    cv_nn <- neuralnet(cv_formula, train_df[-fold,], num_nodes, linear.output = F)
+    #mean(train_df$V58[fold] != pred(cv_nn, train_df[fold, -(58:60)]))
+    sum_table = table(train_df$V58[fold], pred(cv_nn, train_df[fold, -(58:60)])) 
+    return(1- sum(diag(sum_table)) / sum(sum_table))
+  }))
+}
+
+nn_cv_5 = nn_cv(spam_train_nn, spam_formula, 5, num_folds = 5)
+nn_cv_34 = nn_cv(spam_train_nn, spam_formula, c(3,4), num_folds = 5)
+```
+
+
+```{r}
+# decision tree
+control = rpart.control(cp = 0, xval = 10)
+spam_tree = rpart(V58~., data=spam_train, control = control)
+plotcp(spam_tree)
+
+#selected_tr = prune(spam_tree, cp = spam_tree$cptable[14,"CP"])
+#prp(selected_tr, type = 4, extra = 1, clip.right.labs = F)
+
+set.seed(1070)
+folds = cv_partition(spam_train$V58, num_folds = 10)
+
+tree_err = function(cp) {
+  # Train
+  selected_tr = prune(spam_tree, cp = cp)
+  selected_tr_pred = predict(selected_tr, spam_train, type = "class")
+  tr_table = table(spam_train$V58, selected_tr_pred)
+  tr_err = 1- sum(diag(tr_table)) / sum(tr_table)
+  
+  # Test
+  selected_te_pred = predict(selected_tr, spam_test, type = "class")
+  te_table = table(spam_test$V58, selected_te_pred)
+  te_err = 1- sum(diag(te_table)) / sum(te_table)
+  
+  # CV
+  spam.cverr = sapply(folds, function(fold) {
+    spam_tree_cv = rpart(V58~., data=spam_train[fold$training,], control = control)
+    treecv = prune(spam_tree_cv, cp = cp)
+    treepred = predict(treecv, spam_train[fold$test,], type = "class")
+    cv_table = table(spam_train[fold$test,]$V58, treepred)
+    spam.cverr = 1 - sum(diag(cv_table)) / sum(cv_table)
+  })
+  cv_error = mean(spam.cverr)
+  
+  return(c(tr_err, te_err, cv_error))
+}
+
+spam_tree_err = sapply(spam_tree$cptable[,"CP"], tree_err)
+
+df_spam_tree_tr = data.frame(t(spam_tree_err), spam_tree$cptable[,"CP"])
+colnames(df_spam_tree_tr) = c("Train", "Test", "CV", "CP")
+
+df_spam_tree_tr = read.table("2-decision_tree.txt", header=T, sep=',')
+
+df_spam_tree_long = melt(df_spam_tree_tr[,-1], id="CP")
+ggplot(df_spam_tree_long, aes_string(x="CP", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "CP",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  ggtitle("Classification errors for decision tree")
+```
+
+
+
+```{r}
+# resample the data
+spam_train = read.table('spam-train.txt',sep=',')
+spam_test = read.table('spam-test.txt',sep=',')
+
+set.seed(1070)
+spam_new_ind = sample(nrow(spam_train[spam_train[,58]==1,]), nrow(spam_train[spam_train[,58]==0,])%/%9)
+spam_new = spam_train[spam_train[,58]==1,][spam_new_ind,]
+set.seed(1070)
+spam_boot_ind = sample(nrow(spam_new), nrow(spam_train[spam_train[,58]==0,])-nrow(spam_new), replace=TRUE)
+spam_boot = spam_new[spam_boot_ind,]
+imspam = rbind(spam_new, spam_boot, spam_train[spam_train[,58]==0,])
+
+imspam[,58] = as.factor(imspam[,58])
+spam_test[,58] = as.factor(spam_test[,58])
+imspam[,1:57] = scale(imspam[,1:57], center = TRUE, scale = TRUE)
+spam_test[,1:57] = scale(spam_test[,1:57], center = TRUE, scale = TRUE)
+```
+
+```{r}
+# SVM
+set.seed(1070)
+im_folds = cv_partition(imspam$V58, num_folds = 10)
+
+im_error_svm = function(cost=cost, gamma=1/57, degree=3, kernel) {
+  #Train
+  imspam.svm = svm(V58 ~ ., data=imspam,
+                 kernel=kernel, cost=cost, degree=degree, gamma=gamma)
+  train_error = sum(imspam.svm$fitted != imspam$V58) / nrow(imspam)
+  
+  #Test
+  test_error = sum(predict(imspam.svm, spam_test) != spam_test$V58) / nrow(spam_test)
+  
+  #CV error
+  spam.cverr = sapply(im_folds, function(fold) {
+    svmcv = svm(V58 ~ ., data = imspam, kernel=kernel, cost=cost, gamma=gamma, degree=degree, subset = fold$training)
+    svmpred = predict(svmcv, imspam[fold$test,])
+    return(sum(svmpred != imspam$V58[fold$test]) / length(fold$test))
+  })
+  cv_error = mean(spam.cverr)
+  return(c(train_error, cv_error, test_error))
+}
+```
+
+```{r}
+# tuning parameter; linear
+costs = exp(-2:2)
+imspam_cost_errors_l = sapply(costs, function(cost) im_error_svm(cost, kernel="linear"))
+df_imerrs_l = data.frame(t(imspam_cost_errors_l), costs)
+colnames(df_imerrs_l) = c('Train', 'CV', 'Test', 'Cost')
+
+costs_37 = exp(3:4)
+imspam_cost_errors_l37 = sapply(costs_37, function(cost) im_error_svm(cost, kernel="linear"))
+df_imerrs_l37 = data.frame(t(imspam_cost_errors_l37), costs_37)
+colnames(df_imerrs_l37) = c('Train', 'CV', 'Test', 'Cost')
+
+df_imerrs_l_all = rbind(df_imerrs_l, df_imerrs_l37)
+
+df_imerr_l_long = melt(df_imerrs_l_all, id="Cost")
+ggplot(df_imerr_l_long, aes_string(x="Cost", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Cost",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  ggtitle("Classification errors for SVM with linear kernel")
+```
+
+```{r}
+# tuning parameter; polynomial
+degree = 1:5
+costs_p = exp(-2:4)
+
+imcverr_p = sapply(costs_p, function(cost) im_error_svm(cost=cost, degree=degree[1], kernel="polynomial"))
+for (i in 2:length(degree)) {
+  imcverr_p_new = sapply(costs_p, function(cost) im_error_svm(cost=cost, degree=degree[i], kernel="polynomial"))
+  imcverr_p = cbind(imcverr_p, imcverr_p_new)
+}
+
+degree_col = c(rep(1:5, each = length(costs_p)))
+df_imcverr_p = data.frame(t(imcverr_p), rep(costs_p, length(degree)), degree_col)
+colnames(df_imcverr_p) = c('Train', 'CV', 'Test', 'Cost', 'Degree')
+
+df_imerr_p_long = melt(df_imcverr_p, id=c("Cost","Degree"))
+ggplot(df_imerr_p_long, aes_string(x="Cost", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Cost",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  facet_wrap( ~ Degree, ncol = 2) +
+  ggtitle("Classification Errors for SVM with polynomial kernel")
+```
+
+```{r}
+# tuning parameter; radial
+costs_r = exp(-2:4)
+gamma_r = exp(-5:0)
+
+imcverr_r = sapply(costs_r, function(cost) im_error_svm(cost=cost, gamma=gamma_r[1], kernel="radial"))
+for (i in 2:length(gamma_r)) {
+  imcverr_r_new = sapply(costs_r, function(cost) im_error_svm(cost=cost, gamma=gamma_r[i], kernel="radial"))
+  imcverr_r = cbind(imcverr_r, imcverr_r_new)
+}
+
+g_col = c(rep(1:6, each = length(costs_r)))
+gamma_col = c(rep(gamma_r, each = length(costs_r)))
+df_imcverr_r = data.frame(t(imcverr_r), rep(costs_r, length(gamma_r)), gamma_col, g_col)
+colnames(df_imcverr_r) = c('Train', 'CV', 'Test', 'Cost', 'Gamma', 'g')
+
+
+df_imerr_r_long = melt(df_imcverr_r, id=c("Cost","Gamma", "g"))
+ggplot(df_imerr_r_long, aes_string(x="Cost", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Cost",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  facet_wrap( ~ g, ncol = 3) +
+  ggtitle("Classification Errors for SVM with radial kernel")
+```
+
+```{r}
+# decision tree
+control = rpart.control(cp = 0, xval = 10)
+imspam_tree = rpart(V58~., data=imspam, control = control)
+#plotcp(imspam_tree)
+
+
+imtree_err = function(cp) {
+  # Train
+  selected_tr = prune(imspam_tree, cp = cp)
+  selected_tr_pred = predict(selected_tr, imspam, type = "class")
+  tr_table = table(imspam$V58, selected_tr_pred)
+  tr_err = 1- sum(diag(tr_table)) / sum(tr_table)
+  
+  # Test
+  selected_te_pred = predict(selected_tr, spam_test, type = "class")
+  te_table = table(spam_test$V58, selected_te_pred)
+  te_err = 1- sum(diag(te_table)) / sum(te_table)
+  
+  # CV
+  spam.cverr = sapply(im_folds, function(fold) {
+    spam_tree_cv = rpart(V58~., data=imspam[fold$training,], control = control)
+    treecv = prune(spam_tree_cv, cp = cp)
+    treepred = predict(treecv, imspam[fold$test,], type = "class")
+    cv_table = table(imspam[fold$test,]$V58, treepred)
+    spam.cverr = 1 - sum(diag(cv_table)) / sum(cv_table)
+  })
+  cv_error = mean(spam.cverr)
+  
+  return(c(tr_err, te_err, cv_error))
+}
+
+imspam_tree_err = sapply(imspam_tree$cptable[,"CP"], imtree_err)
+
+df_imspam_tree_tr = data.frame(t(imspam_tree_err), imspam_tree$cptable[,2])
+colnames(df_imspam_tree_tr) = c("Train", "Test", "CV", "Tree_size")
+
+df_imspam_tree_long = melt(df_imspam_tree_tr, id="Tree_size")
+ggplot(df_imspam_tree_long, aes_string(x="Tree_size", y="value", colour="variable",
+                         group="variable", linetype="variable", shape="variable")) +
+  geom_line(size=1) + labs(x = "Tree_size",
+                           y = "Classification error",
+                           colour="",group="",
+                           linetype="",shape="") + scale_x_log10() +
+  ggtitle("Classification errors for decision tree")
+```
+
+```{r}
+write.csv(df_imerrs_l_all,"3a-37-svm-linear-bt.txt")
+write.csv(df_imcverr_p,"3a-37-svm-polynomial-bt.txt")
+write.csv(df_imcverr_r,"3a-37-svm-radial-bt.txt")
+write.csv(df_imspam_tree_tr,"3a-37-decision_tree-bt.txt")
+```
+
+```{r}
+# compare 3 kernels
+kernels=data.frame(rbind(df_errs_l_all[which.min(df_errs_l_all$CV),-c(1,5)], df_cverr_p[which.min(df_cverr_p$CV),-c(1,5,6)],
+                 df_cverr_r[which.min(df_cverr_r$CV),-c(1,5,6,7)]))
+rownames(kernels) = c("linear","polynomial","radial")
+```
+
+
+```{r}
+# neural network
+nn_og = read.csv("error_table2.txt")[,-1]
+colnames(nn_og) = c("Train", "Test", "CV")
+layer_col = c('3','5','7','9','c(5,3)','c(7,3)','c(9,3)','c(5,5)','c(7,5)','c(9,5)','c(7,5,3)',
+              'c(9,5,3)','c(7,7,3)','c(9,7,3)','c(7,5,5)','c(9,5,5)','c(7,7,5)','c(9,7,5)')
+df_nn_og = data.frame("layer"=layer_col,nn_og)
+nn_view = cbind(df_nn_og[1:9,],df_nn_og[10:18,])
+```
+

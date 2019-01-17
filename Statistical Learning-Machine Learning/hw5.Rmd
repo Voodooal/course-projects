@@ -1,0 +1,415 @@
+---
+title: "Homework 5"
+author: "Mengyi Yuan"
+date: April 16, 2018
+output:
+  pdf_document: default
+---
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+require(cluster)
+require(ggdendro)
+library(ggplot2)
+library(mclust)
+library(gridExtra)
+```
+
+
+```{r echo=FALSE}
+setwd("/Users/Voodooal/Documents/STATS503/hw5")
+crabs = read.table("crabs.txt", header = T)
+dat = scale(crabs[,-c(1,2)])
+dis = dist(dat)
+mds = as.data.frame(cmdscale(dis, k=2))
+```
+
+This report works on the crabs data set describes the morphological measurements of crabs of the species Leptograpsus variegatus collected in Australia. There are 7 variables: Species(1 = blue crabs, 2 = orange crabs), Sex(1 = male, 2 = female), FL(frontal lobe size measured in mm), RW(rear width in mm), CL(carapace length in cm), CW(carapace width in cm) and BD(body depth in cm). The first 2 variables are categorical variables and the last 5 variables are numerical variables. Clustering methods such as hierarchical clustering method, K-means and mixture modeling will be applied to the numerical variables to cluster the crabs into groups. Clustering results will also be comapred with the true labels, Species and Sex, to analyze the quality and practicability of each clustering method on this specifi data set. Before applying the clustering methods, the numercial variables are being centered and scaled.
+
+## Hierarchical Clustering
+
+We applied hierarchical clustering with k from 2 to 10 on the data and used four different distance mehtods, which are single linkage, complete linkage, average linkage and ward method. The average width of cluster with respect to different values of k are shown in Figure 1. Theoretically, the larger the average width of cluster, the better the quality of clustering. As we can see, clusters with single linkage have the smallest average widths all the time, while the other three methods have similar cluster widths. Clustering using complete linkage when k equals to 2 have the largest width of cluster. 
+
+```{r echo=FALSE,fig.height=3,fig.width=6, fig.cap="Average cluster widths of hierarchical clustering"}
+### Hierarchical Clustering
+hier_clus = function(k, method) {
+  hier = agnes(dat, diss=FALSE, method=method)
+  sil = silhouette(cutree(hier, k=k), dis)
+  sum = summary(sil)
+  avg_width = sum$avg.width
+  return(avg_width)
+}
+
+k_hier = 2:10
+hier_width_sing = sapply(k_hier, function(k) hier_clus(k, "single"))
+hier_width_comp = sapply(k_hier, function(k) hier_clus(k, "complete"))
+hier_width_avg = sapply(k_hier, function(k) hier_clus(k, "average"))
+hier_width_ward = sapply(k_hier, function(k) hier_clus(k, "ward"))
+
+# par(mfrow=c(2,2))
+# plot(k, hier_width_sing, main = "Single Linkage", ylab = "Average Width", type = "o")
+# plot(k, hier_width_comp, main = "Complete Linkage", ylab = "Average Width", type = "o")
+# plot(k, hier_width_avg, main = "Average Linkage", ylab = "Average Width", type = "o")
+# plot(k, hier_width_ward, main = "Ward's method", ylab = "Average Width", type = "o")
+
+hier_df = data.frame(as.factor(k_hier), hier_width_sing, hier_width_comp, hier_width_avg, hier_width_ward)
+ggplot(data = hier_df) + 
+  geom_line(aes(x = k_hier, y = hier_width_sing, color = "Single")) +
+  geom_line(aes(x = k_hier, y = hier_width_comp, color = "Complete")) +
+  geom_line(aes(x = k_hier, y = hier_width_avg, color = "Average")) +
+  geom_line(aes(x = k_hier, y = hier_width_ward, color = "Ward")) + 
+  labs(x = "Number of cluster K", y = "Average width of clusters")
+```
+
+Below in Figure 2 are silhouette plots of hierarchical clustering with four distances when k equals to 2, since they all reach the maximum cluster width at k equals to 2. Silhouette width is a measure of how similar an object is to its own cluster compared to other clusters. The larger the value, the more appropriate the clustering configuration. Corresponding to the line plots above, the silhouette plot using single linkage has the smallest width and the most negative values, whereas the one using complete linkage has the largest width. 
+
+```{r echo=FALSE,out.width="0.49\\linewidth",fig.height=4.2,fig.width=4,fig.show="hold",fig.cap="Hierarchical clustering silhouette plots with k = 2"}
+# hierarchical clustering silhouette plots
+hier_clus_plot = function(k, method) {
+  hier = agnes(dat, diss=FALSE, method=method)
+  sil = silhouette(cutree(hier, k=k), dis)
+  plot(sil, main=method)
+}
+
+# par(mfrow = c(2,2))
+hier_clus_plot(2, "single")
+hier_clus_plot(2, "complete")
+hier_clus_plot(2, "average")
+hier_clus_plot(2, "ward")
+```
+
+## K-Means 
+
+Next, K-means clustering is applied to the scaled data with k from 2 to 10 and we compare the total within-cluster sum of squares, which is sum of square of the Euclidean distance between the data point and the cluster center, across different values of k. As shown in Figure 3, increasing the number of clusters reduces the distances from data points to the centers. The average width of clusters are shown in Figure 4, similar to the within-cluster sum of squares, the average width decreases as the value of k increases. However, the decrease of average width indicates the decrease in clustering quality. 
+
+```{r echo=FALSE,out.width="0.49\\linewidth",fig.height=3,fig.width=5,fig.align='center',fig.show='asis',fig.cap="Total within-clusters sum of squares against different k values"}
+### K-means
+# clus_kmeans = kmeans(dat, 20, nstart = 10, iter.max=100)
+# clus_kmeans$betweenss + clus_kmeans$tot.withinss
+# clus_kmeans$totss
+# 
+k_kmeans = 2:10
+within_ss = sapply(k_kmeans, function(k) kmeans(dat, k, nstart=10, iter.max=50)$tot.withinss)
+df = data.frame(k_kmeans, within_ss)
+ggplot(data = df,aes(x=k_kmeans, y=within_ss)) +
+  geom_line(color = "Coral2") +
+  geom_point(color = "Coral2") +
+  labs(x="Number of cluster K", y="Total within-clusters sum of squares")
+### https://www.r-bloggers.com/finding-optimal-number-of-clusters/
+```
+
+
+
+```{r echo=FALSE,out.width="0.49\\linewidth",fig.height=3,fig.width=5,fig.align='center',fig.show='asis',fig.cap="Average cluster widths of K-Means clustering"}
+kmeans_clus = function(k) {
+  kmeans_mdl = kmeans(dat, k, nstart=10, iter.max = 50)
+  sil = silhouette(kmeans_mdl$cluster, dis)
+  sum = summary(sil)
+  avg_width = sum$avg.width
+  return(avg_width)
+}
+
+kmeans_plot = sapply(k_kmeans, kmeans_clus)
+kmeans_plot_df = data.frame(as.factor(k_kmeans), kmeans_plot)
+ggplot(data = kmeans_plot_df, aes(x = k_kmeans, y = kmeans_plot)) + 
+  geom_line(color = "coral2") +
+  geom_point(color = "Coral2") +
+  labs(x = "Number of cluster K", y = "Average width of clusters")
+```
+
+After analyzing the two plots above, we choose k equals to 3 and 4 and apply the k-means clustering method to the data. The corresponding silhouette plot is shown in Figure 5. It is clear that K-means has a high quality of clustering since the most of the silhouette widths are positive and the average silhouette widths are around 0.5. 
+
+```{r echo=FALSE,out.width="0.49\\linewidth",fig.height=4.2,fig.width=4,fig.show="hold",fig.cap="Silhouette plot of k-means when k = 3 and 4"}
+# k-means silhouette plot
+sil_kmeans3 = silhouette(kmeans(dat, 3, nstart=10, iter.max = 50)$cluster, dis)
+plot(sil_kmeans3)
+
+sil_kmeans4 = silhouette(kmeans(dat, 4, nstart=10, iter.max = 50)$cluster, dis)
+plot(sil_kmeans4)
+```
+
+## Mixture Models
+
+Finally, we apply mixture modeling method to cluster our data with k from 2 to 20. We use the Gaussian Mixture Model and the BIC criterion to choose the best value of k. According to the summary of the model and Figure 6, the best model with the largest BIC is VEE (ellipsoidal, equal shape and orientation) model with 6 components. Therefore, the best value of k is 6.
+
+```{r echo=FALSE,fig.show='asis',fig.align='center',fig.height=3.55,fig.width=4.75,fig.cap="Mclust models with BIC criterion"}
+### Mixture Models
+k_gmm = 2:20
+BIC = mclustBIC(dat)
+gmm = Mclust(data = dat, G = k_gmm, x=BIC)
+plot(gmm, what="BIC")
+# summary(gmm)
+```
+
+We plot two silhouette plots with k equals to 6 and 7, shown in Figure 7. Although these two k values corresponds to the best values of k, the clustering result is not as good as expected. There are many negative values of silhouette widths and the average silhouette width is close to 0.
+
+```{r echo=FALSE,out.width="0.49\\linewidth",fig.height=4.2,fig.width=4,fig.show="hold",fig.cap="Silhouette plots of GMM when k = 6 and 7"}
+gmm6 = Mclust(data = dat, G = 6, x=BIC)
+plot(silhouette(gmm6$classification, dis), main='')
+
+gmm7 = Mclust(data = dat, G = 7, x=BIC)
+plot(silhouette(gmm7$classification, dis), main='')
+```
+
+
+\newpage
+
+## Analysis
+
+To compare the results between K-means and model-based clustering, we applied MDS to the numerical data and labeled the plot according to the cluster results with k equals to 6. In order to further compare the clusters with the Species and Sex variables, we relabel the data combing Species and Sex, where label equals to 1 if Species and Sex are both 1, equals to 2 if Species is 1 and Sex is 2, equals to 3 if Species is 2 and Sex is 1, and equals to 4 if both Species and Sex are 2. The plots with K-means, GMM, Species, Sex and Species x Sex labels are shown in Figure 8. As we can see, the clusters of K-means and GMM are very different from each other. The K-means clusters divide the data horizontally into 6 groups and the boundaries between groups are clear and separable, while many of the GMM clusters have intersection with each other. This may correspond to the results in the silhouette plots in Figure 9. The average silhouette width of K-means is larger than that of GMM, which means the data points are well matched to its own clusters generated by the K-means method. However, a better quality of clustering does not lead to a successful clustering which has interpretable results. Comparing the first two plots in Figure 8 with the other 3 plots colored by pre-defined categories, we found that the GMM clusters plot seems to agree more with the pre-defined categories, especially with the Species x Sex label. To view the comparison more straightforwardly and numerically, we make two tables of K-means clusters and GMM clusters against the predefined labels. As shown in Table 1 and Table 2, GMM clustering result is obviously better than the k-means clustering result. For each level of Species x Sex, the data points are distributed across the k-means clusters and it is hard to find a cluster that contains most of the points from the same level. For GMM clusters, there are many 0's in the table, which means for each level of Species x Sex, the data points are concentrated in small number of groups, mostly 2 groups in our case. For level 4, 59 out of 64 points are in one cluster, which means the GMM clusters highly correspond to pre-defined categories. In this sense, the GMM clustering result is better than the K-means clustering result. 
+
+Notably, in Figure 8, there is a huge difference between the plot of Species and Sex, where Sex variable clearly divide the data into two groups while many data points from different Species groups overlap each other. It means that the morphological features are significantly different between opposite sex, but Species are not distinguishable by the morphological features. 
+
+
+```{r echo=FALSE,fig.height=6,fig.cap="Labeled clustering plot"}
+chosen_kmeans = kmeans(dat, 6, nstart = 10, iter.max=100)
+# chosen_kmeans$cluster
+
+chosen_gmm = Mclust(data = dat, G = k_gmm, x=BIC)
+# chosen_gmm$classification
+
+Species_sex = function(i) {
+  if (mds_temp[i,5] == 1) {
+    if (mds_temp[i,6] == 1){
+      label = 1
+    } else {
+      label = 2
+    }
+  } else {
+    if (mds_temp[i,6] == 1) {
+      label = 3
+    } else {
+      label = 4
+    }
+  }
+  return(label)
+}
+
+
+mds_temp = cbind(mds, as.factor(chosen_kmeans$cluster), as.factor(chosen_gmm$classification), as.factor(crabs$Species), as.factor(crabs$Sex))
+names(mds_temp) = c('V1', 'V2', 'clust1', 'clust2', 'Species', 'Sex')
+
+mds_temp$label = sapply(1:nrow(mds_temp), Species_sex)
+mds_temp$label = as.factor(mds_temp$label)
+
+gp1 = ggplot(mds_temp, aes(x=V2, y=V1, color=clust1)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="K-Means")
+gp2 = ggplot(mds_temp, aes(x=V2, y=V1, color=clust2)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="GMM")
+gp3 = ggplot(mds_temp, aes(x=V2, y=V1, color=Species)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="Species")
+gp4 = ggplot(mds_temp, aes(x=V2, y=V1, color=Sex)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="Sex")
+gp5 = ggplot(mds_temp, aes(x=V2, y=V1, color=label)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="Species x Sex")
+grid.arrange(gp1, gp2, gp3, gp4, gp5, ncol=2)
+
+```
+
+
+
+```{r echo=FALSE}
+table1 = table(mds_temp$label, mds_temp$clust1)
+
+knitr::kable(table1, 
+             col.names = 1:6, row.names=TRUE,
+             caption = "K-means cluster vs Species x Sex")
+```
+
+```{r echo=FALSE}
+table2 = table(mds_temp$label, mds_temp$clust2)
+
+knitr::kable(table2, 
+             col.names = 1:6, row.names=TRUE,
+             caption = "GMM cluster vs Species x Sex")
+```
+
+The opposite result of the interpretation of clusters and the quality of clustering tells us that it is not easy to evaluate the clustering results. A high quality of clustering may not lead to a successful clustering of the data. We may achieve the best theoretical results, but the lost of interpretation or the huge difference between clustering results and pre-defined categories may occur under the best occasion. 
+
+```{r echo=FALSE,out.width="0.49\\linewidth",fig.height=4.2,fig.width=4,fig.show="hold",fig.cap="K-means(Left) and GMM(Right) silhouette plots with k = 6"}
+plot(silhouette(chosen_kmeans$cluster, dis), main='')
+plot(silhouette(chosen_gmm$classification, dis), main='')
+```
+
+\newpage
+
+# Appendix
+
+```{r eval=FALSE}
+require(cluster)
+require(ggdendro)
+library(ggplot2)
+library(mclust)
+library(gridExtra)
+
+setwd("/Users/Voodooal/Documents/STATS503/hw5")
+crabs = read.table("crabs.txt", header = T)
+dat = scale(crabs[,-c(1,2)])
+dis = dist(dat)
+mds = as.data.frame(cmdscale(dis, k=2))
+
+### Hierarchical Clustering
+hier_clus = function(k, method) {
+  hier = agnes(dat, diss=FALSE, method=method)
+  sil = silhouette(cutree(hier, k=k), dis)
+  sum = summary(sil)
+  avg_width = sum$avg.width
+  return(avg_width)
+}
+
+k_hier = 2:10
+hier_width_sing = sapply(k_hier, function(k) hier_clus(k, "single"))
+hier_width_comp = sapply(k_hier, function(k) hier_clus(k, "complete"))
+hier_width_avg = sapply(k_hier, function(k) hier_clus(k, "average"))
+hier_width_ward = sapply(k_hier, function(k) hier_clus(k, "ward"))
+
+# par(mfrow=c(2,2))
+# plot(k, hier_width_sing, main = "Single Linkage", ylab = "Average Width", type = "o")
+# plot(k, hier_width_comp, main = "Complete Linkage", ylab = "Average Width", type = "o")
+# plot(k, hier_width_avg, main = "Average Linkage", ylab = "Average Width", type = "o")
+# plot(k, hier_width_ward, main = "Ward's method", ylab = "Average Width", type = "o")
+
+hier_df = data.frame(as.factor(k_hier), hier_width_sing, 
+                     hier_width_comp, hier_width_avg, hier_width_ward)
+ggplot(data = hier_df) + 
+  geom_line(aes(x = k_hier, y = hier_width_sing, color = "Single")) +
+  geom_line(aes(x = k_hier, y = hier_width_comp, color = "Complete")) +
+  geom_line(aes(x = k_hier, y = hier_width_avg, color = "Average")) +
+  geom_line(aes(x = k_hier, y = hier_width_ward, color = "Ward")) + 
+  labs(x = "Number of cluster K", y = "Average width of clusters")
+
+# hierarchical clustering silhouette plots
+hier_clus_plot = function(k, method) {
+  hier = agnes(dat, diss=FALSE, method=method)
+  sil = silhouette(cutree(hier, k=k), dis)
+  plot(sil, main=method)
+}
+
+# par(mfrow = c(2,2))
+hier_clus_plot(2, "single")
+hier_clus_plot(2, "complete")
+hier_clus_plot(2, "average")
+hier_clus_plot(2, "ward")
+
+### K-means
+# clus_kmeans = kmeans(dat, 20, nstart = 10, iter.max=100)
+# clus_kmeans$betweenss + clus_kmeans$tot.withinss
+# clus_kmeans$totss
+# 
+k_kmeans = 2:10
+within_ss = sapply(k_kmeans, function(k) kmeans(dat, k, nstart=10, iter.max=50)$tot.withinss)
+df = data.frame(k_kmeans, within_ss)
+ggplot(data = df,aes(x=k_kmeans, y=within_ss)) +
+  geom_line(color = "Coral2") +
+  geom_point(color = "Coral2") +
+  labs(x="Number of cluster K", y="Total within-clusters sum of squares")
+### https://www.r-bloggers.com/finding-optimal-number-of-clusters/
+
+kmeans_clus = function(k) {
+  kmeans_mdl = kmeans(dat, k, nstart=10, iter.max = 50)
+  sil = silhouette(kmeans_mdl$cluster, dis)
+  sum = summary(sil)
+  avg_width = sum$avg.width
+  return(avg_width)
+}
+
+kmeans_plot = sapply(k_kmeans, kmeans_clus)
+kmeans_plot_df = data.frame(as.factor(k_kmeans), kmeans_plot)
+ggplot(data = kmeans_plot_df, aes(x = k_kmeans, y = kmeans_plot)) + 
+  geom_line(color = "coral2") +
+  geom_point(color = "Coral2") +
+  labs(x = "Number of cluster K", y = "Average width of clusters")
+
+# k-means silhouette plot
+sil_kmeans3 = silhouette(kmeans(dat, 3, nstart=10, iter.max = 50)$cluster, dis)
+plot(sil_kmeans3)
+
+sil_kmeans4 = silhouette(kmeans(dat, 4, nstart=10, iter.max = 50)$cluster, dis)
+plot(sil_kmeans4)
+
+
+### Mixture Models
+k_gmm = 2:20
+BIC = mclustBIC(dat)
+gmm = Mclust(data = dat, G = k_gmm, x=BIC)
+plot(gmm, what="BIC")
+# summary(gmm)
+
+gmm6 = Mclust(data = dat, G = 6, x=BIC)
+plot(silhouette(gmm6$classification, dis), main='')
+
+gmm7 = Mclust(data = dat, G = 7, x=BIC)
+plot(silhouette(gmm7$classification, dis), main='')
+
+chosen_kmeans = kmeans(dat, 6, nstart = 10, iter.max=100)
+# chosen_kmeans$cluster
+
+chosen_gmm = Mclust(data = dat, G = k_gmm, x=BIC)
+# chosen_gmm$classification
+
+Species_sex = function(i) {
+  if (mds_temp[i,5] == 1) {
+    if (mds_temp[i,6] == 1){
+      label = 1
+    } else {
+      label = 2
+    }
+  } else {
+    if (mds_temp[i,6] == 1) {
+      label = 3
+    } else {
+      label = 4
+    }
+  }
+  return(label)
+}
+
+
+mds_temp = cbind(mds, as.factor(chosen_kmeans$cluster), 
+                 as.factor(chosen_gmm$classification), 
+                 as.factor(crabs$Species), as.factor(crabs$Sex))
+names(mds_temp) = c('V1', 'V2', 'clust1', 'clust2', 'Species', 'Sex')
+
+mds_temp$label = sapply(1:nrow(mds_temp), Species_sex)
+mds_temp$label = as.factor(mds_temp$label)
+
+gp1 = ggplot(mds_temp, aes(x=V2, y=V1, color=clust1)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="K-Means")
+gp2 = ggplot(mds_temp, aes(x=V2, y=V1, color=clust2)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="GMM")
+gp3 = ggplot(mds_temp, aes(x=V2, y=V1, color=Species)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="Species")
+gp4 = ggplot(mds_temp, aes(x=V2, y=V1, color=Sex)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="Sex")
+gp5 = ggplot(mds_temp, aes(x=V2, y=V1, color=label)) +
+  geom_point() + theme(legend.position="none") + 
+  labs(title="Species x Sex")
+grid.arrange(gp1, gp2, gp3, gp4, gp5, ncol=2)
+
+
+table1 = table(mds_temp$label, mds_temp$clust1)
+
+knitr::kable(table1, 
+             col.names = 1:6, row.names=TRUE,
+             caption = "K-means cluster vs Species x Sex")
+
+
+table2 = table(mds_temp$label, mds_temp$clust2)
+
+knitr::kable(table2, 
+             col.names = 1:6, row.names=TRUE,
+             caption = "GMM cluster vs Species x Sex")
+
+plot(silhouette(chosen_kmeans$cluster, dis), main='')
+plot(silhouette(chosen_gmm$classification, dis), main='')
+
+```
+

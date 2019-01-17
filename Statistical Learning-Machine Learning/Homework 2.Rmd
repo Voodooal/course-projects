@@ -1,0 +1,323 @@
+---
+title: "Homework 2"
+author: Mengyi Yuan 
+date: Febuary 7th, 2018
+output: pdf_document
+---
+```{r message=FALSE, include=FALSE}
+library(dplyr)
+library(gridExtra)
+library(ggplot2)
+library(cluster)
+library(corrplot)
+
+```
+
+## Problem 2
+
+To perform the multi-dimensional scaling, we first need to connect the distance matrix D with a Gram matrix by performing double-recentering of the original distance matrix D. After we get the Gram matrix, we will do an eigendecomposition of Gram matrix to get its eigenvalue and eigenvectors. Choosing fist two eigenvalues and eigenvectors and the output matrix Z will be ${[z_1, z_n]}$ = $[\sqrt{\lambda_1u_1}, \sqrt{\lambda_2u_2}]$. Then, we will plot Z as a 2-dimensional map. 
+
+```{r echo=FALSE}
+# 2a
+# create the distance matrix
+D = matrix(c(0, 587, 1212,  701, 1936, 604, 748, 2139, 2182, 543, 
+             587, 0, 920, 940, 1745, 1188, 713, 1858, 1737, 597, 
+             1212, 920, 0, 879, 831, 1726, 1631, 949, 1021, 1494, 
+             701, 940, 879, 0, 1374, 968, 1420, 1645, 1891, 1220, 
+             1936, 1745, 831, 1374, 0, 2339, 2451,  347, 959, 2300, 
+             604, 1188, 1726, 968, 2339, 0, 1092, 2594, 2734, 923, 
+             748, 713, 1631, 1420, 2451, 1092, 0, 2571, 2408, 205, 
+             2139, 1858, 949, 1645, 347, 2594, 2571, 0, 678, 2442, 
+             2182, 1737, 1021, 1891, 959, 2734, 2408, 678, 0, 2329, 
+             543, 597, 1494, 1220, 2300, 923, 205, 2442, 2329, 0), ncol=10)
+
+rownames(D) = c("Atlanta", "Chicago", "Denver", "Houston", "Los Angeles", "Miami", 
+                "New York", "San Francisco", "Seattle", "Washington DC")
+colnames(D) = c("Atlanta", "Chicago", "Denver", "Houston", "Los Angeles", "Miami", 
+                "New York", "San Francisco", "Seattle", "Washington DC")
+```
+
+```{r fig.cap="MDS map of 10 US cities", echo=FALSE}
+# create a MDS function
+MDS = function(D) {
+  n = dim(D)[1]
+  one_mat = outer(rep(1,n), rep(1,n))
+  G = -(diag(n) - one_mat / n) %*% D %*% (diag(n) - one_mat / n) / 2
+  lambda = eigen(G)$values
+  U = eigen(G)$vectors
+  Z = cbind(sqrt(lambda[1])*U[,1], sqrt(lambda[2])*U[,2])
+  
+  colnames(Z) = c("V1", "V2")
+  labs = rownames(D)
+  
+  plot(x = -Z[,1], y = -Z[,2], type = "n", xlab = " <<< West    East >>>", 
+       ylab = "<<< South   North >>>")
+  text(x = -Z[,1], y = -Z[,2], labels = labs)
+}
+MDS(D)
+```
+
+
+I tried five alpha's, 0.01, 0.1, 2, 4 and 8, besides 1 to compare the maps produced by MDS. Although for some of them, the locations of the cities may be upside down or flipped, we should only focus on the relative distance between cities. When alpha is small, the graphs do not vary much and the scale of the coordinates do not vary. Becaue when alpha is close to zero, our distance matrix is a matrix with zero on the diagonal and numbers close to 1 elsewhere. It is hard to plot the cities with equal distances to each other on 2-dimensional space. However, when alpha gets larger, the locations of the cities whose distances are far away from each other, such as Miami, Seattle and New York, haven't been changed, while the locations of the cities in the middle are getting closer. When the distances are raised to alpha times, the larger distances will become even larger and other distances will have only little changes relative to the large distances. MDS will fit the cities with larger distances first and then plot other cities. Since the distances between the cities in the middle are so small compared to the cities on the edge, they seem to overlap each other on the graphs. 
+
+```{r fig.cap="Maps with D^{alpha} with alpha=0.01, 1, 2, 8", echo=FALSE, fig.height=9}
+# 2b
+#create distance matrices with different alpha's
+D_1 = D ^ 0.01
+D_2 = D ^ 0.1
+D_3 = D ^ 1
+D_4 = D ^ 2
+D_5 = D ^ 4
+D_6 = D ^ 8
+
+#compare the maps
+par(mfrow = c(3, 2))
+p1 = MDS(D_1) + title("alpha = 0.01")
+p2 = MDS(D_2) + title("alpha = 0.1")
+p3 = MDS(D_3) + title("alpha = 1")
+p4 = MDS(D_4) + title("alpha = 2")
+p5 = MDS(D_5) + title("alpha = 4")
+p6 = MDS(D_6) + title("alpha = 8")
+```
+
+\newpage
+## Problem 3
+
+The data set concerns city-cycle fuel consumption in miles per gallon(mpg) and other attributes collected for 398 vehicle instances. There are five quantitative variables: mpg, displacement, horsepowert, weight and acceleration and four categorical variables: cylinders, model year, origin and car name. 
+
+Before conducting any analyses, we found that variable horsepower has 6 missing values and removed the rows with missing data. To perform factor analysis and multidimensional scaling, it is appropriate to perform the analysis only on the quantitative variables. So I include all quantitative variables: mpg, displacement, horsepower, weight and acceleration for both methods. 
+
+```{r echo=FALSE}
+# 3
+setwd("/Users/Voodooal/Documents/STATS503/hw2")
+auto_mpg = read.table("auto-mpg.data")
+colnames(auto_mpg) = c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                       "model_year", "origin", "car_name")
+
+auto_mpg$cylinders = as.factor(auto_mpg$cylinders)
+auto_mpg$origin = as.factor(auto_mpg$origin)
+auto_mpg$model_year = as.factor(auto_mpg$model_year)
+
+auto_mpg = auto_mpg %>% filter(horsepower != "?")
+auto_mpg$horsepower = as.numeric(as.character(auto_mpg$horsepower))
+X = auto_mpg[, c("mpg", "displacement", "horsepower", "weight", "acceleration")]
+```
+
+Before perform any analysis, we will first take a look at the correlation plot below. From the plot, displacement, horsepower and weight are highly correlated with positive relationship and mpg is negatively related to all three of them. Due to the high correlation, it is appropriate to perform factor analysis because there seems to be some common factors to explain the variables.
+
+```{r echo=FALSE, fig.cap="Correlation plot of auto_mpg", fig.width=4, fig.height=4}
+corrplot(cor(X), tl.col="black", tl.cex=0.75)
+```
+
+
+In the factor analysis, we have to restrict K to be no more than $\frac{2p+1-\sqrt{8p+1}}{2}$, which is 2.3 when p = 5 in this case. So we can have at most 2 factors. Then we perform a sequential hypothesis test to decide how many factors to use. 
+```{r echo=FALSE, caption="Comparison between PCA, MDS and FA"}
+X_scaled = scale(X)
+
+
+data_FA1 = factanal(x = X, factors=1)
+cat("P-value for FA model with one factor: ", data_FA1$PVAL)
+data_FA2 = factanal(x = X, factors=2)
+cat("P-value for FA model with two factors: ", data_FA2$PVAL)
+```
+
+When we have one factor, the p-value is 2.04e-54. When we have two factors, the p-value became 0.283. We reject the null hypothesis that $\Sigma=\Lambda{\Lambda}^T+\Psi$ with 1 common factor, but we fail to reject the null hypothesis of the model with 2 common factors. So we will use the factor analysis model with 2 common factors. 
+
+```{r echo=FALSE}
+# compare the loading of PCA and FA
+FA_loadings = loadings(data_FA2)[, 1:2]
+auto_pca = princomp(X, cor = T)
+pca_loading = loadings(auto_pca)[, 1:2]
+
+knitr::kable(cbind(FA_loadings, pca_loading), digits = 4,
+             col.names = c("Factor 1(FA)", "Factor 2(FA)", "PC1(PCA)", "PC2(PCA)"),
+             caption = "Comparison of loadings of FA and PCA")
+```
+
+The table above shows the loadings of the FA and PCA model. In the FA model, factor 1 mainly explain the variables mpg, displacement, horsepower and weight. Same as the first principal component in the PCA model, displacement, horsepower and weight are postively correlated and mpg has a negative relationship with them. While factor 1 only focus on the first four variables, PC1 explain all five variables evenly. Factor 2 in the FA model focus mainly acceleration which is the same as the second principal component. 
+
+We then perform the Multi-dimensianl Scaling using 2 different methods to measure the distances, the euclidean distance and the gower distance. In figure 4, we will see that from the the graphs of scores below. When the given dissimilarities are true Euclidean distances, classical scaling is equivalent to PCA. In the FA model, the 14th car seems to be an outlier but it does not look like an outlier in the PCA model. Since the common factors of the FA model often differ from pricipal components, so we cannot say which model is better. Despite the minor differences between models, they still provided several similar insights of the data as discussed above.
+
+```{r echo=FALSE, fig.cap="Comparison of scores of PCA, Eu MDS and FA model"}
+pca_X_scores <- princomp(X, cor = T)$scores[,1:2]
+eu_X_scores <- cmdscale(dist(X_scaled, method = "euclidean"))
+
+fa_X_scores <- factanal(X_scaled, factors = 2, scores = "regression")$scores[, 1:2]
+colnames(pca_X_scores) <- c("V1", "V2")
+colnames(fa_X_scores) <- c("V1", "V2")
+
+scores_list <- list(pca_X_scores, eu_X_scores, fa_X_scores)
+names(scores_list) <- c("PCA", "EU MDS", "FA")
+do.call("grid.arrange", c(lapply(names(scores_list), function(name) {
+  ggplot(data = as.data.frame(scores_list[[name]]), aes(x = V1, y = V2)) + 
+    geom_text(label=1:nrow(X_scaled)) + labs(title = name)
+}), nrow = 2))
+```
+
+Since the original data set contains several categorical variables, we can use gower's distance to measure the distances. In figure 5, we can see the scores plots of Gower MDS with diffrent categorical variables. I included the categorical variables into the dataset to perform MDS with gower's distance and as we discussed in previous assignment, the variable cylinders is the most distinguishable and the points are seperated into three groups. In MDS, the scores plot with the variable origin is also seperated into three groups. The variable model year is not as distinguishable as other two variables. 
+
+
+```{r echo=FALSE, fig.cap="Comparison of scores of Gower MDS with categorical variables"}
+# Gower MDS
+X_gower_cy = cbind(X_scaled, auto_mpg[2])
+X_gower_or = cbind(X_scaled, auto_mpg[8])
+X_gower_yr = cbind(X_scaled, auto_mpg[7])
+
+gower_X_scores_cy <- cmdscale(daisy(X_gower_cy, metric = "gower"))
+gower_X_scores_or <- cmdscale(daisy(X_gower_or, metric = "gower"))
+gower_X_scores_yr <- cmdscale(daisy(X_gower_yr, metric = "gower"))
+
+colnames(gower_X_scores_cy) <- c("V1", "V2")
+colnames(gower_X_scores_or) <- c("V1", "V2")
+colnames(gower_X_scores_yr) <- c("V1", "V2")
+
+gower_list <- list(gower_X_scores_cy, gower_X_scores_or, gower_X_scores_yr)
+names(gower_list) <- c("Cylinders", "Origin", "Model Year")
+
+do.call("grid.arrange", c(lapply(names(gower_list), function(name) {
+  ggplot(data = as.data.frame(gower_list[[name]]), aes(x = V1, y = V2)) + 
+    geom_text(label=1:392) + labs(title = name)
+}), nrow = 2))
+
+```
+
+Althought the scores plot of PCA, FA and MDS look different, but they provided similar insights of the data regarding to the relationship between variables and how to interpret the data. 
+
+
+\newpage
+### Appendix
+
+```{r eval=FALSE}
+
+library(dplyr)
+library(gridExtra)
+library(ggplot2)
+library(cluster)
+library(corrplot)
+
+
+# 2a
+# create the distance matrix
+D = matrix(c(0, 587, 1212,  701, 1936, 604, 748, 2139, 2182, 543, 
+             587, 0, 920, 940, 1745, 1188, 713, 1858, 1737, 597, 
+             1212, 920, 0, 879, 831, 1726, 1631, 949, 1021, 1494, 
+             701, 940, 879, 0, 1374, 968, 1420, 1645, 1891, 1220, 
+             1936, 1745, 831, 1374, 0, 2339, 2451,  347, 959, 2300, 
+             604, 1188, 1726, 968, 2339, 0, 1092, 2594, 2734, 923, 
+             748, 713, 1631, 1420, 2451, 1092, 0, 2571, 2408, 205, 
+             2139, 1858, 949, 1645, 347, 2594, 2571, 0, 678, 2442, 
+             2182, 1737, 1021, 1891, 959, 2734, 2408, 678, 0, 2329, 
+             543, 597, 1494, 1220, 2300, 923, 205, 2442, 2329, 0), ncol=10)
+
+rownames(D) = c("Atlanta", "Chicago", "Denver", "Houston", "Los Angeles", "Miami", 
+                "New York", "San Francisco", "Seattle", "Washington DC")
+colnames(D) = c("Atlanta", "Chicago", "Denver", "Houston", "Los Angeles", "Miami", 
+                "New York", "San Francisco", "Seattle", "Washington DC")
+
+# create a MDS function
+MDS = function(D) {
+  n = dim(D)[1]
+  one_mat = outer(rep(1,n), rep(1,n))
+  G = -(diag(n) - one_mat / n) %*% D %*% (diag(n) - one_mat / n) / 2
+  lambda = eigen(G)$values
+  U = eigen(G)$vectors
+  Z = cbind(sqrt(lambda[1])*U[,1], sqrt(lambda[2])*U[,2])
+  
+  colnames(Z) = c("V1", "V2")
+  labs = rownames(D)
+  
+  plot(x = -Z[,1], y = -Z[,2], type = "n", xlab = " <<< West    East >>>", 
+       ylab = "<<< South   North >>>")
+  text(x = -Z[,1], y = -Z[,2], labels = labs)
+}
+MDS(D)
+
+# 2b
+#create distance matrices with different alpha's
+D_1 = D ^ 0.01
+D_2 = D ^ 0.1
+D_3 = D ^ 1
+D_4 = D ^ 2
+D_5 = D ^ 4
+D_6 = D ^ 8
+
+#compare the maps
+par(mfrow = c(3, 2))
+p1 = MDS(D_1) + title("alpha = 0.01")
+p2 = MDS(D_2) + title("alpha = 0.1")
+p3 = MDS(D_3) + title("alpha = 1")
+p4 = MDS(D_4) + title("alpha = 2")
+p5 = MDS(D_5) + title("alpha = 4")
+p6 = MDS(D_6) + title("alpha = 8")
+
+# 3
+setwd("/Users/Voodooal/Documents/STATS503/hw2")
+auto_mpg = read.table("auto-mpg.data")
+colnames(auto_mpg) = c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                       "model_year", "origin", "car_name")
+
+auto_mpg$cylinders = as.factor(auto_mpg$cylinders)
+#auto_mpg$origin = as.factor(auto_mpg$origin)
+#auto_mpg$model_year = as.factor(auto_mpg$model_year)
+
+auto_mpg = auto_mpg %>% filter(horsepower != "?")
+auto_mpg$horsepower = as.numeric(as.character(auto_mpg$horsepower))
+X = auto_mpg[, c("mpg", "displacement", "horsepower", "weight", "acceleration")]
+
+corrplot(cor(X), tl.col="black", tl.cex=0.75)
+
+X_scaled = scale(X)
+X_gower = cbind(X_scaled, auto_mpg[2])
+
+data_FA1 = factanal(x = X, factors=1)
+cat("P-value for FA model with one factor: ", data_FA1$PVAL)
+data_FA2 = factanal(x = X, factors=2)
+cat("P-value for FA model with two factors: ", data_FA2$PVAL)
+
+# compare the loading of PCA and FA
+FA_loadings = loadings(data_FA2)[, 1:2]
+auto_pca = princomp(X, cor = T)
+pca_loading= loadings(auto_pca)[, 1:2]
+
+knitr::kable(cbind(FA_loadings, pca_loading), digits = 4,
+             col.names = c("Factor 1(FA)", "Factor 2(FA)", "PC1(PCA)", "PC2(PCA)"),
+             caption = "Comparison of loadings of FA and PCA")
+
+# Compare model scores
+pca_X_scores <- princomp(X, cor = T)$scores[,1:2]
+eu_X_scores <- cmdscale(dist(X_scaled, method = "euclidean"))
+gower_X_scores <- cmdscale(daisy(X_gower, metric = "gower"))
+fa_X_scores <- factanal(X_scaled, factors = 2, scores = "regression")$scores[, 1:2]
+
+colnames(pca_X_scores) <- c("V1", "V2")
+colnames(fa_X_scores) <- c("V1", "V2")
+
+scores_list <- list(pca_X_scores, eu_X_scores, gower_X_scores, fa_X_scores)
+names(scores_list) <- c("PCA", "EU MDS", "Gower MDS", "FA")
+do.call("grid.arrange", c(lapply(names(scores_list), function(name) {
+  ggplot(data = as.data.frame(scores_list[[name]]), aes(x = V1, y = V2)) + 
+    geom_text(label=1:nrow(X_scaled)) + labs(title = name)
+}), nrow = 2))
+
+# Gower MDS
+X_gower_cy = cbind(X_scaled, auto_mpg[2])
+X_gower_or = cbind(X_scaled, auto_mpg[8])
+X_gower_yr = cbind(X_scaled, auto_mpg[7])
+
+gower_X_scores_cy <- cmdscale(daisy(X_gower_cy, metric = "gower"))
+gower_X_scores_or <- cmdscale(daisy(X_gower_or, metric = "gower"))
+gower_X_scores_yr <- cmdscale(daisy(X_gower_yr, metric = "gower"))
+
+colnames(gower_X_scores_cy) <- c("V1", "V2")
+colnames(gower_X_scores_or) <- c("V1", "V2")
+colnames(gower_X_scores_yr) <- c("V1", "V2")
+
+gower_list <- list(gower_X_scores_cy, gower_X_scores_or, gower_X_scores_yr)
+names(gower_list) <- c("Cylinders", "Origin", "Model Year")
+
+do.call("grid.arrange", c(lapply(names(gower_list), function(name) {
+  ggplot(data = as.data.frame(gower_list[[name]]), aes(x = V1, y = V2)) + 
+    geom_text(label=1:392) + labs(title = name)
+}), nrow = 2))
+
+```
