@@ -1,0 +1,309 @@
+---
+title: "503Project"
+author: "Mengyi Yuan"
+date: "2018.3.11"
+output: html_document
+---
+
+```{r}
+# load data
+setwd("/Users/Voodooal/Documents/STATS503/Project")
+train_data = read.csv("train.csv", header = TRUE)
+test_data = read.csv("test.csv", header = TRUE)
+test_salaries = read.csv("test_salaries.csv", header = TRUE)
+
+# combine the test data and the train data
+test_data = cbind(test_salaries, test_data)
+all_data = rbind(train_data, test_data)
+```
+
+```{r}
+# pca
+all_data_no_miss = rbind(na.omit(train_data),na.omit(test_data))
+pca_all_data = all_data_no_miss[,-c(1:6,12:16)]
+pca_results = princomp(pca_all_data,cor=T)
+#summary(pca_results)
+#(cumsum(pca_results$sdev^2) / sum(pca_results$sdev^2))[1:10]
+pca_scores = pca_results$scores[,1:3]
+```
+
+
+```{r}
+# Random Forest Variables Selections
+train_data_rf = train_data
+train_data_rf$salary = 1*(log(train_data_rf$Salary) > 14.25)
+train_data_rf$salary = as.factor(train_data_rf$salary)
+train_data_rf = train_data_rf[, -c(1:6, 11:16)]
+train_data_rf = na.omit(train_data_rf)
+
+# rf = randomForest(salary ~ ., mtry = 44, ntree = 1000, data = train_data_rf)
+# tune_rf = tuneRF(train_data_rf[, -143], y = train_data_rf$salary)
+# varImpPlot(rf)
+
+library(caret)
+control = rfeControl(functions = rfFuncs, method = "cv", number = 10)
+results = rfe(train_data_rf[, -143], y = train_data_rf$salary, sizes = c(1:142), rfeControl = control)
+selected_vars = predictors(results)
+```
+
+
+```{r}
+library(mice)
+# bic 
+vars = c("Salary", "DftYr", "DftRd", "G", "A1", "A2", "PTS", "TOIX", "iFF", "iHDf", "iTKA", "iFOW",  "dzFOW", "CA", "FA", "HF", "PS",  "OTOI")
+bic_data_train = train_data[, vars]
+bic_data_test = test_data[, vars]
+
+# missing data
+# summary(all_data.num)
+set.seed(1234)
+bic_data_train = complete(mice(bic_data_train[, -1], method = "cart"))
+bic_data_train$Salary = train_data$Salary
+
+set.seed(1234)
+bic_data_test = complete(mice(bic_data_test[, -1], method = "cart"))
+bic_data_test$Salary = test_data$Salary
+```
+
+```{r}
+library(ggplot2)
+
+# distribution of player's salaries
+ggplot(data = all_data.num2) + 
+  geom_histogram(aes(Salary), bins = 52, fill = "black")
+  
+# Salary vs DftYr
+decode_dftyr = function(x){
+  x = (x > 1992) + (x > 1995) + (x > 1998) + (x > 2001) + (x > 2004) + (x > 2007) + (x > 2010) + (x > 2013) + (x > 2016) 
+  return(x)
+}
+all_data.num2$dftyr = sapply(all_data.num2$DftYr, decode_dftyr)
+all_data.num2$dftyr = as.factor(all_data.num2$dftyr)
+
+ggplot(data = all_data.num2) +
+  geom_boxplot(aes(dftyr, Salary))
+
+# Salary vs DftRd
+all_data.num2$dftrd = as.factor(all_data.num2$DftRd)
+ggplot(data = all_data.num2) +
+  geom_boxplot(aes(dftrd, Salary))
+
+# Salary vs PTS
+ggplot(data = all_data.num, aes(PTS, Salary)) + 
+  geom_point() + 
+  geom_smooth(formula = y ~ x, method = "lm", se = FALSE)
+
+# Salary vs TOIX
+ggplot(data = all_data.num, aes(TOIX, Salary)) + 
+  geom_point() + 
+  geom_smooth(formula = y ~ x, method = "lm", se = FALSE)
+
+# Salary vs iFF
+ggplot(data = all_data.num, aes(iFF, Salary)) + 
+  geom_point() + 
+  geom_smooth(formula = y ~ x, method = "lm", se = FALSE)
+
+# Salary vs PS
+ggplot(data = all_data.num, aes(PS, Salary)) + 
+  geom_point() + 
+  geom_smooth(formula = y ~ x, method = "lm", se = FALSE)
+
+library(scatterplot3d)
+color.gradient = function(x, colors = c("green", "yellow", "red"), colsteps = 100){
+  return(colorRampPalette(colors) (colsteps) [findInterval(x, seq(min(x), max(x),  length.out = colsteps))])
+}
+
+# plot 3-D scatter plots
+sd3_1 = scatterplot3d(all_data.num$CA, all_data.num$FA, all_data.num$Salary,
+                    pch = 19,type = "h",
+                    cex.axis = 0.5,
+                    las = 1,
+                    lty.hplot = 2,
+                    color = color.gradient(all_data.num$Salary, c("black","salmon")),
+                    zlab = "Salary",
+                    xlab = "CA",
+                    ylab = "FA",
+                    grid = TRUE)
+
+sd3_2 = scatterplot3d(all_data.num$dzFOW, all_data.num$HF, all_data.num$Salary,
+                    pch = 19,type = "h",
+                    cex.axis = 0.5,
+                    las = 1,
+                    lty.hplot = 2,
+                    color = color.gradient(all_data.num$Salary, c("black","salmon")),
+                    zlab = "Salary",
+                    xlab = "dzFOW",
+                    ylab = "HF",
+                    grid = TRUE)
+
+library(corrplot)
+corrplot(cor(scale(all_data.num[, -c(19, 20)])), tl.col="black", tl.cex = 0.75, type = "upper")
+```
+
+```{r}
+# number of players from each country 
+barplot(sort(table(all_data.cat$Cntry),
+        decreasing = TRUE), 
+        horiz = TRUE, 
+        las = 1,
+        col = c("red","blue4","blue","red3","skyblue"),
+        ylab = "Country",xlab = "count")
+
+
+library(ggplot2)
+ggplot(data = all_data.num) +
+  geom_boxplot(aes(dftyr, Salary))
+
+```
+
+```{r}
+library(scatterplot3d)
+color.gradient = function(x, colors = c("green", "yellow", "red"), colsteps = 100){
+  return(colorRampPalette(colors) (colsteps) [findInterval(x, seq(min(x), max(x),  length.out = colsteps))])
+}
+
+# plot 3-D scatter plots
+sd3_1 = scatterplot3d(all_data.num$G, all_data.num$TOI.GP, all_data.num$Salary,
+                    pch = 19,type = "h",
+                    cex.axis = 0.5,
+                    las = 1,
+                    lty.hplot = 2,
+                    color = color.gradient(all_data.num$Salary, c("black","salmon")),
+                    zlab = "Salary",
+                    xlab = "Goals",
+                    ylab = "Average Time on Ice",
+                    grid = TRUE)
+
+sd3_2 = scatterplot3d(all_data.num$A1, all_data.num$A2, all_data.num$Salary,
+                    pch = 19,type = "h",
+                    cex.axis = 0.5,
+                    las = 1,
+                    lty.hplot = 2,
+                    color = color.gradient(all_data.num$Salary, c("black","salmon")),
+                    zlab = "Salary",
+                    xlab = "Primary Assists",
+                    ylab = "Secondary Assists",
+                    grid = TRUE)
+
+# correlation plot
+library(corrplot)
+corrplot(cor(scale(all_data.num[, -c(19, 20)])), tl.col="black", tl.cex = 0.75, type = "upper")
+
+```
+
+
+
+```{r}
+# remove the rows containing missing values
+
+train_data = train_data[rowSums(is.na(train_data)) == 0, ]
+test_salaries = as.data.frame(test_salaries[rowSums(is.na(test_data)) == 0, ])
+colnames(test_salaries) = "Salary"
+test_data = test_data[rowSums(is.na(test_data)) == 0, ]
+
+vars = c("Salary", "A1", "A2", "CA", "DftRd", "DftYr", "dzFOW", "FA", "G", "HF", "iFF", "iFOW", "iHDf", "iTKA", "OTOI", "PS", "PTS", "TOI.GP", "TOIX")
+train_data = train_data[, vars]
+test_data = test_data[, vars]
+```
+
+
+
+
+```{r}
+summary(all_data$Salary)
+hist(all_data$Salary, breaks=52, 
+     col="salmon", xlab='Salary', 
+     ylab = "Number of players", main='NHL Salary Distribution: 2016/2017')
+
+all_data.cat$Cntry = as.character(all_data.cat$Cntry)
+all_data.cat$Cntry[(all_data.cat$Cntry != "USA") & (all_data.cat$Cntry != "CAN")] = "Other"
+all_data.cat$Cntry = as.factor(all_data.cat$Cntry)
+
+summary(all_data.cat$Salary[all_data.cat$Cntry == "CAN"])
+summary(all_data.cat$Salary[all_data.cat$Cntry == "USA"])
+summary(all_data.cat$Salary[all_data.cat$Cntry == "Other"])
+
+library(GGally)
+summary(train_data)
+x = data.matrix(train_data)
+ggpairs(as.data.frame(x), axisLabels = "none",
+diag = list(continuous = wrap('barDiag', bins=15)),
+upper = list(continuous = "points"),
+lower = list(continuous = "points"))
+```
+
+```{r}
+### train data
+bic_data_train$salary = 1*(log(bic_data_train$Salary) > 14.25) 
+bic_data_train$salary = as.factor(bic_data_train$salary)
+bic_data_train = bic_data_train[,-18]
+bic_data_train[,-18] = scale(bic_data_train[,-18])
+
+var_rf = c("DftYr", "TOI.GP.1", "TOI.GP", "FOL", "TOI.", "CF", "xGF", "FOW", "SF", "GF", "FF", "SCF", "iMiss", "GA", "iBLK.1", "SA")
+rf_data_train = train_data[, var_rf]
+# deal with missing data
+rf_data_train = complete(mice(rf_data_train, method = "cart", threshold = 2))
+# add salary label
+rf_data_train$salary = bic_data_train$salary
+rf_data_train$salary = as.factor(rf_data_train$salary)
+rf_data_train[,-17] = scale(rf_data_train[,-17])
+
+pca_data_train = as.data.frame(pca_scores[1:494,])
+pca_data_train$Salary = na.omit(train_data)$Salary
+pca_data_train$salary = 1*(log(pca_data_train$Salary) > 14.25)
+pca_data_train$salary = as.factor(pca_data_train$salary)
+pca_data_train = pca_data_train[,-4]
+
+# test data
+bic_data_test$salary = 1*(log(bic_data_test$Salary) > 14.25)
+bic_data_test$salary = as.factor(bic_data_test$salary)
+bic_data_test = bic_data_test[,-18]
+bic_data_test[,-18] = scale(bic_data_test[,-18])
+
+rf_data_test = test_data[,var_rf]
+rf_data_test = complete(mice(rf_data_test, method = "cart", threshold = 2))
+# add salary label
+rf_data_test$salary = bic_data_test$salary
+rf_data_test$salary = as.factor(rf_data_test$salary)
+rf_data_test[,-17] = scale(rf_data_test[,-17])
+
+pca_data_test = as.data.frame(pca_scores[495:722,])
+pca_data_test$Salary = na.omit(test_data)$Salary
+pca_data_test$salary = 1*(log(pca_data_test$Salary) > 14.25)
+pca_data_test$salary = as.factor(pca_data_test$salary)
+pca_data_test = pca_data_test[,-4]
+```
+
+```{r}
+save(bic_data_test, bic_data_train, pca_data_test, pca_data_train, rf_data_test, rf_data_train, file="503 Project.RData")
+```
+
+```{r}
+# data for linear regression
+# train data
+bic_train = bic_data_train
+bic_train$Salary = train_data$Salary
+bic_train = bic_train[,-18]
+
+rf_train = rf_data_train
+rf_train$Salary = train_data$Salary
+rf_train = rf_train[,-29]
+
+pca_train = pca_data_train
+pca_train$Salary = na.omit(train_data)$Salary
+pca_train = pca_train[,-4]
+
+# test data
+bic_test = bic_data_test
+bic_test$Salary = test_data$Salary
+bic_test = bic_test[,-18]
+
+rf_test = rf_data_test
+rf_test$Salary = test_data$Salary
+rf_test = rf_test[,-29]
+
+pca_test = pca_data_test
+pca_test$Salary = na.omit(test_data)$Salary
+pca_test = pca_test[,-4]
+```
+
