@@ -1,0 +1,515 @@
+---
+title: "Homework 1"
+author: "Mengyi Yuan"
+date: "January 17, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+```{r include=FALSE}
+library(dplyr)
+library(mvtnorm)
+library(ggplot2)
+library(gridExtra)
+
+setwd("/Users/Voodooal/Documents/STATS503/hw1")
+height_weight = read.table("heightWeightData.txt")
+```
+
+```{r include=FALSE}
+# 3a
+colnames(height_weight) = c("gender", "height", "weight")
+height_weight$index = 1:nrow(height_weight)
+hw_male = height_weight[height_weight$gender == 1,]
+
+x.points = seq(min(hw_male$height) - 0.5*abs(min(hw_male$height)), 
+               max(hw_male$height) + 0.5*abs(max(hw_male$height)), length.out = 1000)
+y.points = seq(min(hw_male$weight) - 0.5*abs(min(hw_male$weight)), 
+               max(hw_male$weight) + 0.5*abs(max(hw_male$weight)), length.out = 1000)
+xgrid = expand.grid(height = x.points, weight = y.points)
+points = dmvnorm(xgrid, mean = colMeans(hw_male[, c("height", "weight")]),
+                 sigma = cov(hw_male[, c("height", "weight")]))
+
+index = 1:nrow(hw_male)
+
+p1 <- ggplot(data = hw_male, aes(x = height, y = weight)) +
+  geom_text(aes(label = index)) + 
+  geom_contour(data = xgrid, aes(z = points), breaks = 0.0005, col = "black") +
+  ggtitle("Original data")
+```
+
+```{r include=FALSE}
+# b
+male_stan = hw_male
+male_stan[, c("height", "weight")] = scale(male_stan[, c("height", "weight")])
+
+x.points.stan = seq(min(male_stan$height) - 0.5*abs(min(male_stan$height)), 
+               max(male_stan$height) + 0.5*abs(max(male_stan$height)), length.out = 100)
+y.points.stan = seq(min(male_stan$weight) - 0.5*abs(min(male_stan$weight)), 
+               max(male_stan$weight) + 0.5*abs(max(male_stan$weight)), length.out = 100)
+xgrid_stan = expand.grid(height = x.points.stan, weight = y.points.stan)
+points_stan = dmvnorm(xgrid_stan, mean = colMeans(male_stan[, c("height", "weight")]),
+                 sigma = cov(male_stan[, c("height", "weight")]))
+
+p2 <- ggplot(data = male_stan, aes(x = height, y = weight)) +
+  geom_text(aes(label = index)) + 
+  geom_contour(data = xgrid_stan, aes(z = points_stan), breaks = 0.05, col = "black") +
+  coord_fixed(ratio = 0.75) + xlim(-3, 3) + ylim(-2.5, 3.5) +
+  ggtitle("Standardized data")
+```
+
+```{r include=FALSE}
+# c
+male_white = male_stan
+X = as.matrix(male_white[, c("height", "weight")])
+eig = eigen(cov(X))
+X_white = diag(1 / sqrt(eig$values)) %*% t(eig$vectors) %*% t(X)
+male_white[, c("height", "weight")] = t(X_white)
+
+x.points.white = seq(min(male_white$height) - 0.5*abs(min(male_white$height)), 
+               max(male_white$height) + 0.5*abs(max(male_white$height)), length.out = 100)
+y.points.white = seq(min(male_white$weight) - 0.5*abs(min(male_white$weight)), 
+               max(male_white$weight) + 0.5*abs(max(male_white$weight)), length.out = 100)
+xgrid_white = expand.grid(height = x.points.white, weight = y.points.white)
+points_white = dmvnorm(xgrid_white, mean = colMeans(male_white[, c("height", "weight")]),
+                 sigma = cov(male_white[, c("height", "weight")]))
+
+p3 <- ggplot(data = male_white, aes(x = height, y = weight)) +
+  geom_text(aes(label = index)) + 
+  geom_contour(data = xgrid_white, aes(z = points_white), breaks = 0.05, col = "black") +
+  coord_fixed(ratio = 1) + xlim(-3, 3) + ylim(-3, 3) + 
+  ggtitle("Whitened data")
+```
+
+### Problem 3
+
+Below are the plots of the contours for the original, standardized and whitened data. The contour plot for the whitened data looks more like a circle than an ellipse, because after whitening, the data is uncorrelated and of equal variance along each dimension. 
+
+```{r echo=FALSE, warning=FALSE, fig.height=3, fig.width=3.5}
+# display the plots
+p1
+p2
+p3
+```
+
+\newpage
+### Problem 4
+
+```{r include=FALSE}
+# problem 4
+library(plotly)
+fa = as.data.frame(read.table("fa_data.txt"))
+```
+
+```{r include=FALSE, eval=FALSE}
+# a 
+plot_ly(fa, x = ~V1, y = ~V2, z = ~V3)
+plot_ly(fa, x = ~V4, y = ~V5, z = ~V6)
+plot_ly(fa, x = ~V7, y = ~V2, z = ~V3)
+plot_ly(fa, x = ~V1, y = ~V3, z = ~V7)
+```
+
+
+We have a data set consisting of 500 data points in 7 dimensions and the data are believed to lie mostly near a 2-dim linear submanifold. To demonstrate that, we plot the data in 3 dimensions chosen randomly. By manipulating the plots and changing the perspective of view the plots, there is always an angle that all points seem to lie on a plane. Figures below will demonstrate that visually. 
+
+```{r echo=FALSE, out.width="50%"}
+include_graphics("./V1V2V3.png")
+include_graphics("./V4V5V6.png")
+include_graphics("./V2V3V7.png")
+include_graphics("./V1V3V7.png")
+```
+
+
+```{r echo=FALSE}
+# b
+fa = as.matrix(fa)
+n = dim(fa)[1]
+mat = matrix(1, nrow = n)
+fa_center = fa - mat %*% t(mat) %*% fa / n
+fa_pca = eigen(cov(fa_center))
+#fa_pca
+loadings = fa_pca$vectors[, c(1,2)]
+pca_projections = as.data.frame(fa %*% loadings)
+colnames(pca_projections) = c("V1", "V2")
+```
+
+After conducting PCA, we found that the loadings of the principal components are:
+
+```{r echo=FALSE}
+knitr::kable(fa_pca$vectors, digit = 3, 
+             col.names = paste("PC", 1:7),
+             caption = "Principal components")
+```
+
+The projections of the data set on to the 2-dim principal subspace:
+
+```{r echo=FALSE}
+ggplot(data = pca_projections) + 
+  geom_point(aes(x = V1, y = V2), col = 'blue') +
+  scale_x_continuous("First principal component") +
+  scale_y_continuous("Second principal component") + 
+  ggtitle("Projections on to the 2-dim principal subspace")
+```
+
+The proportion of total variance explained by each principal components are showed below,
+and the proportion explained by PCA's two principal components is 98.66%.
+
+```{r echo=FALSE}
+# c
+pca_var = fa_pca$values
+per_of_var = 100 * cumsum(pca_var / sum(pca_var))
+
+
+knitr::kable(t(per_of_var), digits=2,
+      col.names = paste("PC", 1:7, sep=""),
+      caption = "Percent of variance explained (%)")
+```
+
+
+
+```{r include=FALSE}
+# problem 5
+library(GGally)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+auto_mpg = read.table("auto-mpg.data")
+colnames(auto_mpg) = c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                       "model_year", "origin", "car_name")
+```
+
+```{r echo=FALSE}
+auto_mpg = auto_mpg %>%
+  filter(horsepower != "?")
+auto_mpg$horsepower = as.numeric(as.character(auto_mpg$horsepower))
+auto_con = auto_mpg[, c("displacement", "horsepower", "weight", "acceleration")]
+# Summary tables and pictures
+#summary(auto_mpg)
+var_con = var(auto_con)
+```
+
+```{r echo=FALSE}
+# c
+auto_pca = princomp(auto_con, cor = T)
+#summary(auto_pca)
+
+# calculate the percentage of variance explained
+per_of_var5 = auto_pca$sdev^2 / sum(auto_pca$sdev^2)
+cumper_of_var5 = cumsum(auto_pca$sdev^2 / sum(auto_pca$sdev^2))
+```
+
+```{r echo=FALSE}
+# d
+pca_loading = loadings(auto_pca)[, 1:2]
+```
+
+```{r echo=FALSE}
+# e
+df = data.frame(PC1 = auto_pca$scores[, 1],
+                PC2 = auto_pca$scores[, 2],
+                Cylinders = factor(auto_mpg$cylinders),
+                Model_year = factor(auto_mpg$model_year),
+                Origin = factor(auto_mpg$origin),
+                Car_name = factor(auto_mpg$car_name))
+```
+
+```{r echo=FALSE}
+# f
+# bootstrap 
+set.seed(123)
+
+bootstrap_indices = lapply(1:1000, function(i) {sample(1:nrow(auto_con), replace = T)})
+
+per_of_var = function(ind) {
+  pca_res = princomp(auto_con[ind,], cor = T)
+  per_of_var = cumsum(pca_res$sdev^2 / sum(pca_res$sdev^2))
+  return(per_of_var[1:2])
+}
+
+pca_bootstrap_results = sapply(bootstrap_indices, per_of_var)
+bootstrap_summary = apply(pca_bootstrap_results, 1, function(result) {c(quantile(result, probs = c(0.025, 0.975)))})
+```
+
+
+\newpage
+### Problem 5
+
+The data set concerns city-cycle fuel consumption in miles per gallon(mpg) and other attributes collected for 398 vehicle instances. There are five quantitative variables: mpg, displacement, horsepowert, weight and acceleration and four categorical variables: cylinders, model year, origin and car name. The numeric summaries of the quantitative variables are presented in Table 3 and the pairwise scatterplots of the five quantitative variables are shown below.
+
+```{r echo=FALSE}
+summary_quan = data.frame(
+  "Mean" = c(193.4, 52.16, 2970, 15.57),
+  "Standard deviation" = sqrt(diag(var_con)),
+  "Min" = c(68, 2, 1613, 8),
+  "Max" = c(455, 94, 5140, 24.8))
+
+knitr::kable(summary_quan, digits = 2,
+             col.names = c("Mean", "Variance", "Min", "Max"),
+             caption = "Numerical summary of the data")
+```
+
+```{r echo=FALSE, fig.cap="Pairwise scatterplots of quantitative variables"}
+ggpairs(auto_con, diag = list(continuous = wrap("barDiag", bins = 25)),
+        upper = list(continuous = "points"),
+        lower = list(continuous = "points"))
+```
+
+```{r echo=FALSE}
+# boxplots
+auto_mpg$cylinders = as.factor(auto_mpg$cylinders)
+auto_mpg$origin = as.factor(auto_mpg$origin)
+auto_mpg$model_year = as.factor(auto_mpg$model_year)
+
+p51 <- ggplot(auto_mpg, aes(y = displacement, x = cylinders)) + 
+  geom_boxplot()
+p52 <- ggplot(auto_mpg, aes(y = weight, x = origin)) + 
+  geom_boxplot()
+p53 <- ggplot(auto_mpg, aes(y = acceleration, x = model_year)) +
+  geom_boxplot()
+grid.arrange(p51, p52, p53, ncol = 2)
+```
+
+Before conducting any analyses, we found that variable horsepower has 6 missing values and removed the rows with missing data. The numerical summary in Table 3 shows that the quantitative variables are on different scales since their variances are very different. To perform PCA, it is better to use the correlation matrix rather than the covariance matrix. The pairwise scatterplot indicates some of the quantitative variables have strong correlation, such as weight and displacement or horsepower and displacement. The correlation suggests that we need to use PCA to reduce the dimension of the data. The boxplots show that the subpopulations of cylinders are different from each other while origin and model year do not have much difference. 
+
+To choose variables we want to perform PCA on, we will first remove mpg since it is a response variable. In general, we would perform PCA on quantitative variables and may perform PCA on categorical variables when they are binary. However, the categorical variables in our data set are not binary, so we will choose variables displacement, horsepowe, weight and acceleration to perform the PCA.
+
+The percentage of variacne explained by the principal components are shown in Table 4 below. The first principal component explains 80.2% of variance. The percentage explained by the second components drops to 16.4%. The scree plot below shows a sudden drop from after the second component. Although the first PC explains 80% of the variance, we still need to take a look at the second PCs since them together explain over around 97% of the variance. We would say that the first two principle components provide a good representation of the data. 
+
+```{r echo=FALSE, fig.height=3}
+knitr::kable(rbind("Proportion of Variance"=per_of_var5, "Cumulative Proportion"=cumper_of_var5), 
+             digits = 3,
+             col.names = paste("PC", 1:4),
+             caption = "Percentage of variance explained by PC's (%)")
+
+# screeplot
+plot(1:length(auto_pca$sdev), auto_pca$sdev, type = "l", xlab = "number of principal components",
+     ylab = "Standard deviation", main = "Scree plot of PCA for data auto_mpg")
+```
+
+Table 5 shows the loadings of the first two principal components. For the first principal component, displacement, horsepower and weight have similar loadings while acceleration has a smaller loading and opposite sign. The first PC represent the average of displacement, horsepower and weight contrast to the acceleration. The second loading vector places most of its weight on acceleration and less weight on the other three features. Hence, this component roughly represent the level of acceleration.
+
+```{r echo=FALSE}
+knitr::kable(pca_loading, digits = 4,
+             col.names = paste("PC", 1:2),
+             caption = "Loadings of the first three principal components")
+```
+
+The projection plot is shown below, there seems to be no potential outliers. By plotting the PC scores with different categorical variables, we found that cylinders are most seperated according to the attribute values, which corresponds to our observation from the boxplots. 
+
+```{r echo=FALSE, fig.height=3}
+# projection plot
+ggplot(df, aes(x = PC1, y = PC2)) + 
+  geom_point() +
+  ggtitle("Projection plot on the first two PCs")
+
+# PC scores
+ggplot(df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = Cylinders)) +
+  ggtitle("Projection plot of cylinders")
+ggplot(df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = Origin)) +
+  ggtitle("Projection plot of origin")
+ggplot(df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = Model_year)) +
+  ggtitle("Projection plot of model year")
+```
+
+To find the 95% confidence intervalfor the percentage explained by the first 2 PCs, we use the bootstrap method to find the variance from the bootstrap samples. We first sampled 1000 bootstrap samples of all the data points from the original data set without replacement. Then we perform PCA on each of the 1000 bootstrap samples and then find the 0.025 and 0.975 quantile of the percentages. The 95% confidence interval for PC1 is (0.7775, 0.8253) and the confidence interval for the first two PCs is (0.9594, 0.9719).
+
+```{r echo=FALSE}
+knitr::kable(bootstrap_summary, digits = 4,
+            col.names = c("First PC", "First two PCs"), 
+            main = "95% confidence interval for the percentage of variance explained by first 2 PCs")
+```
+
+The biplot below shows that horsepower, displacement and weight are highly correlated since they are pointing at the same direction. Acceleration is pointing at the opposite direction of the other three variables, so it is negatively correlated to the other variables. 
+
+```{r echo=FALSE, caption="The PCA biplot", fig.height=6, fig.width=8}
+# g
+biplot(auto_pca, xlim = c(-0.20, 0.15))
+```
+
+\newpage
+### Appendix
+
+```{r eval=FALSE}
+# Question 3
+library(dplyr)
+library(mvtnorm)
+library(ggplot2)
+library(gridExtra)
+
+setwd("/Users/Voodooal/Documents/STATS503/hw1")
+height_weight = read.table("heightWeightData.txt")
+
+# 3a
+colnames(height_weight) = c("gender", "height", "weight")
+height_weight$index = 1:nrow(height_weight)
+hw_male = height_weight[height_weight$gender == 1,]
+
+x.points = seq(min(hw_male$height) - 0.5*abs(min(hw_male$height)), 
+               max(hw_male$height) + 0.5*abs(max(hw_male$height)), length.out = 1000)
+y.points = seq(min(hw_male$weight) - 0.5*abs(min(hw_male$weight)), 
+               max(hw_male$weight) + 0.5*abs(max(hw_male$weight)), length.out = 1000)
+xgrid = expand.grid(height = x.points, weight = y.points)
+points = dmvnorm(xgrid, mean = colMeans(hw_male[, c("height", "weight")]),
+                 sigma = cov(hw_male[, c("height", "weight")]))
+
+index = 1:nrow(hw_male)
+
+p1 <- ggplot(data = hw_male, aes(x = height, y = weight)) +
+  geom_text(aes(label = index)) + 
+  geom_contour(data = xgrid, aes(z = points), breaks = 0.0005, col = "black") +
+  ggtitle("Original data")
+
+# b
+male_stan = hw_male
+male_stan[, c("height", "weight")] = scale(male_stan[, c("height", "weight")])
+
+x.points.stan = seq(min(male_stan$height) - 0.5*abs(min(male_stan$height)), 
+               max(male_stan$height) + 0.5*abs(max(male_stan$height)), length.out = 100)
+y.points.stan = seq(min(male_stan$weight) - 0.5*abs(min(male_stan$weight)), 
+               max(male_stan$weight) + 0.5*abs(max(male_stan$weight)), length.out = 100)
+xgrid_stan = expand.grid(height = x.points.stan, weight = y.points.stan)
+points_stan = dmvnorm(xgrid_stan, mean = colMeans(male_stan[, c("height", "weight")]),
+                 sigma = cov(male_stan[, c("height", "weight")]))
+
+p2 <- ggplot(data = male_stan, aes(x = height, y = weight)) +
+  geom_text(aes(label = index)) + 
+  geom_contour(data = xgrid_stan, aes(z = points_stan), breaks = 0.05, col = "black") +
+  coord_fixed(ratio = 0.75) + xlim(-3, 3) + ylim(-2.5, 3.5) +
+  ggtitle("Standardized data")
+
+# c
+male_white = male_stan
+X = as.matrix(male_white[, c("height", "weight")])
+eig = eigen(cov(X))
+X_white = diag(1 / sqrt(eig$values)) %*% t(eig$vectors) %*% t(X)
+male_white[, c("height", "weight")] = t(X_white)
+
+x.points.white = seq(min(male_white$height) - 0.5*abs(min(male_white$height)), 
+               max(male_white$height) + 0.5*abs(max(male_white$height)), length.out = 100)
+y.points.white = seq(min(male_white$weight) - 0.5*abs(min(male_white$weight)), 
+               max(male_white$weight) + 0.5*abs(max(male_white$weight)), length.out = 100)
+xgrid_white = expand.grid(height = x.points.white, weight = y.points.white)
+points_white = dmvnorm(xgrid_white, mean = colMeans(male_white[, c("height", "weight")]),
+                 sigma = cov(male_white[, c("height", "weight")]))
+
+p3 <- ggplot(data = male_white, aes(x = height, y = weight)) +
+  geom_text(aes(label = index)) + 
+  geom_contour(data = xgrid_white, aes(z = points_white), breaks = 0.05, col = "black") +
+  coord_fixed(ratio = 1) + xlim(-3, 3) + ylim(-3, 3) + 
+  ggtitle("Whitened data")
+
+
+# display the plots
+p1
+p2
+p3
+
+
+# problem 4
+library(plotly)
+fa = as.data.frame(read.table("fa_data.txt"))
+
+# a 
+plot_ly(fa, x = ~V1, y = ~V2, z = ~V3)
+plot_ly(fa, x = ~V4, y = ~V5, z = ~V6)
+plot_ly(fa, x = ~V7, y = ~V2, z = ~V3)
+plot_ly(fa, x = ~V1, y = ~V3, z = ~V7)
+
+include_graphics("./V1V2V3.png")
+include_graphics("./V4V5V6.png")
+include_graphics("./V2V3V7.png")
+include_graphics("./V1V3V7.png")
+
+# b
+fa = as.matrix(fa)
+n = dim(fa)[1]
+mat = matrix(1, nrow = n)
+fa_center = fa - mat %*% t(mat) %*% fa / n
+fa_pca = eigen(cov(fa_center))
+#fa_pca
+loadings = fa_pca$vectors[, c(1,2)]
+pca_projections = as.data.frame(fa %*% loadings)
+colnames(pca_projections) = c("V1", "V2")
+
+knitr::kable(fa_pca$vectors, digit = 3, 
+             col.names = paste("PC", 1:7),
+             caption = "Principal components")
+
+ggplot(data = pca_projections) + 
+  geom_point(aes(x = V1, y = V2), col = 'blue') +
+  scale_x_continuous("First principal component") +
+  scale_y_continuous("Second principal component") + 
+  ggtitle("Projections on to the 2-dim principal subspace")
+
+# c
+pca_var = fa_pca$values
+per_of_var = 100 * cumsum(pca_var / sum(pca_var))
+
+
+knitr::kable(t(per_of_var), digits=2,
+      col.names = paste("PC", 1:7, sep=""),
+      caption = "Percent of variance explained (%)")
+
+# problem 5
+library(GGally)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+auto_mpg = read.table("auto-mpg.data")
+colnames(auto_mpg) = c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                       "model_year", "origin", "car_name")
+
+auto_mpg = auto_mpg %>%
+  filter(horsepower != "?")
+auto_mpg$horsepower = as.numeric(as.character(auto_mpg$horsepower))
+auto_con = auto_mpg[, c("displacement", "horsepower", "weight", "acceleration")]
+# Summary tables and pictures
+#summary(auto_mpg)
+var_con = var(auto_con)
+
+# c
+auto_pca = princomp(auto_con, cor = T)
+#summary(auto_pca)
+
+# calculate the percentage of variance explained
+per_of_var5 = auto_pca$sdev^2 / sum(auto_pca$sdev^2)
+cumper_of_var5 = cumsum(auto_pca$sdev^2 / sum(auto_pca$sdev^2))
+
+# d
+pca_loading = loadings(auto_pca)[, 1:2]
+
+# e
+df = data.frame(PC1 = auto_pca$scores[, 1],
+                PC2 = auto_pca$scores[, 2],
+                Cylinders = factor(auto_mpg$cylinders),
+                Model_year = factor(auto_mpg$model_year),
+                Origin = factor(auto_mpg$origin),
+                Car_name = factor(auto_mpg$car_name))
+
+# f
+# bootstrap 
+set.seed(123)
+
+bootstrap_indices = lapply(1:1000, function(i) {sample(1:nrow(auto_con), replace = T)})
+
+per_of_var = function(ind) {
+  pca_res = princomp(auto_con[ind,], cor = T)
+  per_of_var = cumsum(pca_res$sdev^2 / sum(pca_res$sdev^2))
+  return(per_of_var[1:3])
+}
+
+pca_bootstrap_results = sapply(bootstrap_indices, per_of_var)
+bootstrap_summary = apply(pca_bootstrap_results, 1, function(result) {
+  c(quantile(result, probs = c(0.025, 0.975)))})
+```
+
+
+
+
